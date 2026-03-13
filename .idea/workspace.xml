@@ -1,18 +1,61 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
   <component name="ChangeListManager">
-    <list default="true" id="70c2d627-d820-414c-ba0d-40585a8c116b" name="Changes" comment="" />
+    <list default="true" id="70c2d627-d820-414c-ba0d-40585a8c116b" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/evaluate_tflite_vs_pth.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/export_tflite.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/generate_labels.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test_tflite_gui.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/CNN.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/CNN.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/api_server.py" beforeDir="false" afterPath="$PROJECT_DIR$/api_server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/data_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/data_handler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/model_builder.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/model_builder.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/evaluate.py" beforeDir="false" afterPath="$PROJECT_DIR$/evaluate.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/export_android.py" beforeDir="false" afterPath="$PROJECT_DIR$/export_android.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/export_web.py" beforeDir="false" afterPath="$PROJECT_DIR$/export_web.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plot_comparison.py" beforeDir="false" afterPath="$PROJECT_DIR$/plot_comparison.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/predict.py" beforeDir="false" afterPath="$PROJECT_DIR$/predict.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/train.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 4
-}]]></component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;AndreanMlna&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/AndreanMlna/CNN_aksara_jawa.git&quot;,
+    &quot;accountId&quot;: &quot;8bd437ee-fd59-475c-a323-bba126f3da10&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
   <component name="ProjectId" id="3APHxspr2tUninvVEZoCJ2uWC1c" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -21,7 +64,25 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true"
+    "Python.api_server.executor": "Run",
+    "Python.evaluate.executor": "Run",
+    "Python.evaluate_tflite_vs_pth.executor": "Run",
+    "Python.export_android.executor": "Run",
+    "Python.export_tflite.executor": "Run",
+    "Python.export_web.executor": "Run",
+    "Python.generate_labels.executor": "Run",
+    "Python.plot_comparison.executor": "Run",
+    "Python.predict.executor": "Run",
+    "Python.test_tflite.executor": "Run",
+    "Python.test_tflite_gui.executor": "Run",
+    "Python.train.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "master",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "D:/magang/CNN",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
 }]]></component>
   <component name="SharedIndexes">

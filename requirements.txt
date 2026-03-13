@@ -1,0 +1,25 @@
+# Core PyTorch Engine
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Data Manipulation & Analysis
+numpy<2.0.0
+pandas<2.0.0
+scikit-learn
+
+# Visualization
+matplotlib
+seaborn
+
+# Image Processing
+pillow
+
+# Utilities
+tqdm
+
+tensorflow
+
+onnx
+onnx_tf
+
+fastapi
