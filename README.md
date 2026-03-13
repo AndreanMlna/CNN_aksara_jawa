@@ -1,4 +1,4 @@
-# ꦄꦏ꧀ꦱꦫꦗꦮ | Aksara Jawa Image Classification (120 Classes)
+# ꦄꦏ꧀ꦱꦫꦗꦮ | Aksara Jawa Image Classification
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg?style=flat&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=flat&logo=PyTorch&logoColor=white)
