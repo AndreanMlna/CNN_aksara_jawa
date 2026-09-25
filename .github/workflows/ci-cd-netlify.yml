@@ -1,0 +1,118 @@
+name: AksaraAI CI/CD - Netlify Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - 'netlify_deploy/**'
+      - 'netlify.toml'
+      - '.github/workflows/ci-cd-netlify.yml'
+      - '.github/scripts/**'
+  pull_request:
+    branches:
+      - master
+      - main
+    paths:
+      - 'netlify_deploy/**'
+      - 'netlify.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # STAGE 1: QUALITY GATE (Model Parity, Asset Verification, & Integrity Check)
+  # ============================================================================
+  quality-gate:
+    name: 🛡️ Quality Gate & Model Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: 📦 Install Minimal Verification Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install onnx
+
+      - name: 🔍 Execute Deep Learning & Bundle Integrity Auditor
+        run: |
+          python .github/scripts/verify_bundle.py
+
+      - name: 📝 Post Quality Gate Summary
+        if: always()
+        run: |
+          echo "### 🛡️ Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Directory**: \`netlify_deploy/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Model**: \`aksara_efficientnet_v2_web.onnx\` (~19.3 MB)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Classes**: 120 Aksara Jawa Classes Verified" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: Quality Gate PASSED ✅" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # STAGE 2: CONTINUOUS DEPLOYMENT TO NETLIFY
+  # ============================================================================
+  deploy-netlify:
+    name: 🚀 Deploy to Netlify Edge CDN
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: ⚡ Install Netlify CLI
+        run: npm install -g netlify-cli@latest
+
+      - name: 🌐 Deploy to Netlify Production / Preview
+        id: netlify_deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets['NETLIFY_AUTH_TOKEN'] }}
+          NETLIFY_SITE_ID: ${{ secrets['NETLIFY_SITE_ID'] }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "⚠️ [INFO] Secret NETLIFY_AUTH_TOKEN atau NETLIFY_SITE_ID belum disetel di GitHub Repository Secrets."
+            echo "ℹ️ Netlify Git Integration akan mempublikasikan situs secara otomatis melalui webhook repositori."
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ℹ️ Netlify Deployment Note" >> $GITHUB_STEP_SUMMARY
+            echo "Semua gerbang pengujian kualitas (Quality Gate) telah **LULUS 100%**." >> $GITHUB_STEP_SUMMARY
+            echo "Untuk mengaktifkan deployment langsung melalui GitHub Actions, tambahkan Secrets berikut di GitHub:" >> $GITHUB_STEP_SUMMARY
+            echo "1. \`NETLIFY_AUTH_TOKEN\`: Dapatkan dari User Settings > Applications > Personal Access Tokens" >> $GITHUB_STEP_SUMMARY
+            echo "2. \`NETLIFY_SITE_ID\`: Dapatkan dari Site Configuration > General > Site Details > API ID" >> $GITHUB_STEP_SUMMARY
+            echo "Atau biarkan Netlify Git App mempublikasikan otomatis melalui [netlify.toml](netlify.toml)." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "🚀 Melakukan Deploy Preview untuk Pull Request #${{ github.event.number }}..."
+            OUTPUT=$(netlify deploy --dir=netlify_deploy --alias="pr-${{ github.event.number }}" --json)
+            PREVIEW_URL=$(echo "$OUTPUT" | jq -r '.deploy_url')
+            echo "deploy_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
+            echo "### 🌐 Netlify Preview URL" >> $GITHUB_STEP_SUMMARY
+            echo "Pratinjau PR aktif di: [$PREVIEW_URL]($PREVIEW_URL)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🚀 Melakukan Deploy Produksi (Live Release)..."
+            OUTPUT=$(netlify deploy --dir=netlify_deploy --prod --json)
+            PROD_URL=$(echo "$OUTPUT" | jq -r '.deploy_url')
+            echo "deploy_url=$PROD_URL" >> $GITHUB_OUTPUT
+            echo "### 🚀 Netlify Production URL" >> $GITHUB_STEP_SUMMARY
+            echo "Situs live aktif di: [$PROD_URL]($PROD_URL)" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,39 +1,37 @@
 # ==============================================================================
 # Netlify Configuration - AksaraAI Studio
-# Standar: Principal ML Engineer / Decoupled Cloud Architecture
+# Standar: Zero-Config Deployment with In-Browser WebAssembly ONNX Runtime
 # ==============================================================================
 
 [build]
-  # Direktori publik frontend statis (HTML, CSS, JS)
-  publish = "web"
+  publish = "netlify_deploy"
 
-# ------------------------------------------------------------------------------
-# 1. Penyelarasan Path Aset Statis (/static/* -> /*)
-# Memastikan /static/css/style.css dan /static/js/*.js otomatis diarahkan ke folder web/
-# ------------------------------------------------------------------------------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/models/*.onnx"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"
+    Cache-Control = "public, max-age=31536000, immutable"
+
 [[redirects]]
   from = "/static/*"
   to = "/:splat"
   status = 200
 
-# ------------------------------------------------------------------------------
-# 2. Netlify API Reverse Proxy (Menghubungkan Frontend Netlify ke Backend AI)
-# Masukkan URL Backend FastAPI Anda setelah dideploy ke Render / Hugging Face Spaces.
-# Fitur ini mengeliminasi masalah CORS dan menjaga komunikasi tetap aman melalui HTTPS.
-# ------------------------------------------------------------------------------
-# [[redirects]]
-#   from = "/api/*"
-#   to = "https://NAMA-APP-ANDA.onrender.com/api/:splat"
-#   status = 200
-#   force = true
-
-# ------------------------------------------------------------------------------
-# 3. HTTP Security Headers
-# ------------------------------------------------------------------------------
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "SAMEORIGIN"
-    X-XSS-Protection = "1; mode=block"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

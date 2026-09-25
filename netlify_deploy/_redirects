@@ -1,0 +1,10 @@
+# AksaraAI Netlify Redirect Configuration
+# Paritas asset path /static/ ke root path
+/static/*  /:splat  200
+
+# Opsional: Reverse Proxy ke FastAPI Backend eksternal (Railway, Render, Fly.io, HuggingFace Spaces)
+# Hilangkan tanda komentar (#) dan masukkan URL server backend Anda jika ingin menggunakan mode server:
+# /api/*  https://your-fastapi-backend.up.railway.app/api/:splat  200
+
+# Single Page App Routing
+/*  /index.html  200
