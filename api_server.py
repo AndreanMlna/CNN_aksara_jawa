@@ -8,11 +8,12 @@ import os
 import io
 import time
 import json
-import glob
+from dataclasses import dataclass
+from typing import Optional, Tuple, List, Dict, Any
 import torch
 import torch.nn.functional as F
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +21,12 @@ from fastapi.responses import FileResponse, JSONResponse
 import torchvision.transforms as transforms
 
 from core import config, model_builder
-from core.aksara_data import get_aksara_details, BASE_CONSONANTS, SANDHANGAN_INFO
+from core.aksara_data import get_aksara_details, SANDHANGAN_INFO
+
+# Module Constants
+DEFAULT_CONFIDENCE_THRESHOLD = 50.0
+DEFAULT_INK_THRESHOLD = 190
+CANVAS_HANDWRITING_FILENAME = "canvas_handwriting.png"
 
 # Inisialisasi Aplikasi FastAPI
 app = FastAPI(
@@ -52,14 +58,8 @@ with open(config.CLASS_MAP_PATH, 'r', encoding='utf-8') as f:
     class_indices = json.load(f)
 
 idx_to_class = {int(v): k for k, v in class_indices.items()}
+class_to_idx = {v: k for k, v in idx_to_class.items()}
 num_classes = len(class_indices)
-
-# Kelompokkan indeks kelas berdasarkan domain kategori dataset
-cat_to_indices = {c: [] for c in ['aksara-dasar', 'pepet', 'suku', 'taling-tarung', 'wulu', 'taling']}
-for name, idx in class_indices.items():
-    cat = name.split('_')[0]
-    if cat in cat_to_indices:
-        cat_to_indices[cat].append(int(idx))
 
 # Inisialisasi Arsitektur EfficientNet-B0
 model = model_builder.build_model(num_classes)
@@ -83,135 +83,124 @@ image_transform = transforms.Compose([
 ])
 
 
-class_to_idx = {v: k for k, v in idx_to_class.items()}
+@dataclass
+class InkBoundingBox:
+    """Representasi koordinat dan batas wilayah tinta goresan aksara."""
+    arr: np.ndarray
+    ink_y: np.ndarray
+    ink_x: np.ndarray
+    min_x: int
+    max_x: int
+    min_y: int
+    max_y: int
+    sw: int
+    sh: int
 
 
-def detect_suku_descender(raw_img: Image.Image) -> tuple[bool, float]:
-    """
-    Mendeteksi keberadaan fisik sandhangan suku (ekor vertikal ke bawah di kuadran kanan).
-    Algoritma Computer Vision berbasis analisis morfologis proyeksi adaptif:
-    - Ambang pemisah badan dan ekor ditetapkan pada 55% lebar aksara (sw).
-    - Badan aksara (0% - 55% lebar): mencakup seluruh lengkungan punuk & baseline badan aksara.
-    - Ekor sandhangan suku (55% - 100% lebar): menjulur jauh ke bawah melampaui garis dasar badan aksara.
-    - Mencegah false positive pada aksara dasar ramping (seperti Ra dan Ga) yang kaki kirinya
-      terkadang digambar lebih pendek/menggantung oleh pengguna.
-    - Return: (has_suku: bool, descender_ratio: float)
-    """
+def extract_ink_bounding_box(
+    raw_img: Image.Image,
+    threshold: int = DEFAULT_INK_THRESHOLD,
+    margin: int = 5
+) -> Optional[InkBoundingBox]:
+    """Mengekstrak matriks piksel tinta dan batas bounding box dengan perlindungan perimeter."""
     arr = np.array(raw_img.convert('L'))
-    # Guard terhadap noise border HTML canvas / screenshot artifacts (1-5px perimeter)
     if arr.shape[0] > 30 and arr.shape[1] > 30:
-        inner = arr[5:-5, 5:-5]
-        ink_y_in, ink_x_in = np.where(inner < 190)
-        if len(ink_x_in) >= 20:
+        inner = arr[margin:-margin, margin:-margin]
+        _, inner_ink_x = np.where(inner < threshold)
+        if len(inner_ink_x) >= 20:
             arr = inner
 
-    ink_y, ink_x = np.where(arr < 190)
+    ink_y, ink_x = np.where(arr < threshold)
     if len(ink_x) < 25:
-        return False, 0.0
+        return None
 
     min_x, max_x = int(ink_x.min()), int(ink_x.max())
     min_y, max_y = int(ink_y.min()), int(ink_y.max())
-    sw = max_x - min_x + 1
-    sh = max_y - min_y + 1
 
-    # Ambang batas pemisah badan (kiri 55%) vs ekor suku (kanan 45%)
-    x_cutoff = min_x + int(0.55 * sw)
-    body_ink_y = ink_y[ink_x <= x_cutoff]
-    tail_ink_y = ink_y[ink_x > x_cutoff]
+    return InkBoundingBox(
+        arr=arr,
+        ink_y=ink_y,
+        ink_x=ink_x,
+        min_x=min_x,
+        max_x=max_x,
+        min_y=min_y,
+        max_y=max_y,
+        sw=max_x - min_x + 1,
+        sh=max_y - min_y + 1
+    )
+
+
+def detect_suku_descender(raw_img: Image.Image) -> tuple[bool, float]:
+    """Mendeteksi keberadaan fisik sandhangan suku (ekor vertikal ke bawah di kuadran kanan)."""
+    bbox = extract_ink_bounding_box(raw_img)
+    if bbox is None:
+        return False, 0.0
+
+    x_cutoff = bbox.min_x + int(0.55 * bbox.sw)
+    body_ink_y = bbox.ink_y[bbox.ink_x <= x_cutoff]
+    tail_ink_y = bbox.ink_y[bbox.ink_x > x_cutoff]
 
     if len(body_ink_y) == 0 or len(tail_ink_y) == 0:
         return False, 0.0
 
     body_base = int(body_ink_y.max())
     body_top = int(body_ink_y.min())
-    b_h = max(1, body_base - body_top + 1)
+    body_h = max(1, body_base - body_top + 1)
     tail_bot = int(tail_ink_y.max())
 
     descender_px = tail_bot - body_base
-    ratio = descender_px / b_h
+    ratio = descender_px / body_h
 
-    # Sandhangan suku sejati: ekor turun minimal 20px di bawah dasar badan dan rasio >= 0.25
-    has_suku = (descender_px >= 20) and (ratio >= 0.25)
+    has_suku = (descender_px >= 35) and (ratio >= 0.35)
     return has_suku, max(0.0, ratio)
 
 
-def detect_taling_and_tarung(raw_img: Image.Image):
-    """
-    Deteksi Morfologis Struktur Sandhangan Taling (2 glif) vs Taling-Tarung (3 glif).
-    - Taling (ꦺ): Glif sandhangan di sisi kiri (x <= 0.48 * sw) dengan kaki vertikal ke bawah,
-      diikuti aksara konsonan di sisi kanan.
-    - Taling-Tarung (ꦺ...ꦴ): Format 3 glif (Taling kiri, Konsonan tengah, Tarung kanan)
-      dengan rasio aspek lebar (sw / sh >= 1.25) dan adanya lembah spasi pemisah sebelum Tarung.
-    """
-    arr = np.array(raw_img.convert('L'))
-    if arr.shape[0] > 30 and arr.shape[1] > 30:
-        inner = arr[5:-5, 5:-5]
-        ink_y_in, ink_x_in = np.where(inner < 190)
-        if len(ink_x_in) >= 20:
-            arr = inner
-
-    ink_y, ink_x = np.where(arr < 190)
-    if len(ink_x) < 25:
+def detect_taling_and_tarung(raw_img: Image.Image) -> tuple[bool, bool]:
+    """Deteksi Morfologis Struktur Sandhangan Taling (2 glif) vs Taling-Tarung (3 glif)."""
+    bbox = extract_ink_bounding_box(raw_img)
+    if bbox is None:
         return False, False
 
-    min_x, max_x = int(ink_x.min()), int(ink_x.max())
-    min_y, max_y = int(ink_y.min()), int(ink_y.max())
-    sw = max_x - min_x + 1
-    sh = max_y - min_y + 1
+    aspect = bbox.sw / max(bbox.sh, 1)
+    crop_ink = (bbox.arr[bbox.min_y:bbox.max_y + 1, bbox.min_x:bbox.max_x + 1] < DEFAULT_INK_THRESHOLD).astype(np.uint8)
 
-    aspect = sw / max(sh, 1)
-    if aspect < 0.60:
-        return False, False
+    has_taling = False
+    if aspect >= 0.95:
+        sep_start = max(1, int(bbox.sw * 0.20))
+        sep_end = min(bbox.sw - 1, int(bbox.sw * 0.48))
+        if sep_end > sep_start:
+            proj_l = crop_ink[:, sep_start:sep_end].sum(axis=0)
+            if len(proj_l) > 0 and proj_l.min() <= 2:
+                valley_x = sep_start + int(np.argmin(proj_l))
+                left_col_sums = crop_ink[:, :valley_x].sum(axis=1)
+                left_h = (left_col_sums > 0).sum()
+                if left_h >= 0.55 * bbox.sh:
+                    has_taling = True
 
-    # Analisis glif kiri (kandidat Taling)
-    left_mask = (ink_x >= min_x) & (ink_x <= min_x + int(0.48 * sw))
-    left_ink_y = ink_y[left_mask]
-    left_ink_x = ink_x[left_mask]
-
-    right_mask = (ink_x > min_x + int(0.48 * sw))
-    right_ink_y = ink_y[right_mask]
-    right_ink_x = ink_x[right_mask]
-
-    if len(left_ink_x) < 15 or len(right_ink_x) < 15:
-        return False, False
-
-    left_h = int(left_ink_y.max()) - int(left_ink_y.min()) + 1
-    # Taling memiliki tinggi vertikal signifikan (>= 60% dari total bounding box tinggi)
-    has_taling = (left_h >= 0.60 * sh)
-
-    # Deteksi komponen Tarung di sisi kanan (Aksara 3 glif)
     has_tarung = False
     if aspect >= 1.25:
-        crop_ink = (arr[min_y:max_y + 1, min_x:max_x + 1] < 190).astype(np.uint8)
-        # Lembah pemisah antara konsonan tengah dan tarung kanan pada rentang 55% - 88% lebar
-        proj_r = crop_ink[:, int(sw * 0.55):int(sw * 0.88)].sum(axis=0)
+        proj_r = crop_ink[:, int(bbox.sw * 0.55):int(bbox.sw * 0.88)].sum(axis=0)
         if len(proj_r) > 0 and proj_r.min() <= 3:
-            far_right_ink = crop_ink[:, int(sw * 0.85):].sum()
+            far_right_ink = crop_ink[:, int(bbox.sw * 0.85):].sum()
             if far_right_ink >= 25:
                 has_tarung = True
 
     return has_taling, has_tarung
 
 
-def normalize_canvas_stroke(raw_img: Image.Image):
-    """
-    Ekstraksi Bounding-Box & Normalisasi Aspek Rasio Goresan Tulisan Tangan Kanvas.
-    Menyelaraskan skala spasial, margin, dan posisi baseline goresan kanvas web
-    agar 100% kongruen dengan distribusi spasial dataset EfficientNet-B0.
-    """
+def normalize_canvas_stroke(raw_img: Image.Image) -> tuple[Image.Image, Image.Image]:
+    """Ekstraksi Bounding-Box & Normalisasi Aspek Rasio Goresan Tulisan Tangan Kanvas."""
     arr = np.array(raw_img.convert('L'))
-    # Guard terhadap perimeter border
     offset_x, offset_y = 0, 0
     if arr.shape[0] > 20 and arr.shape[1] > 20:
         inner = arr[3:-3, 3:-3]
-        ink_y_in, ink_x_in = np.where(inner < 190)
+        _, ink_x_in = np.where(inner < DEFAULT_INK_THRESHOLD)
         if len(ink_x_in) >= 20:
             arr = inner
             offset_x, offset_y = 3, 3
 
-    ink_y, ink_x = np.where(arr < 190)
+    ink_y, ink_x = np.where(arr < DEFAULT_INK_THRESHOLD)
     if len(ink_x) < 25:
-        # Kanvas kosong
         return raw_img, raw_img
 
     min_x, max_x = int(ink_x.min()) + offset_x, int(ink_x.max()) + offset_x
@@ -220,7 +209,7 @@ def normalize_canvas_stroke(raw_img: Image.Image):
     sh = max_y - min_y + 1
     stroke = raw_img.crop((min_x, min_y, max_x + 1, max_y + 1))
 
-    # 1. View 0: Domain Bujur Sangkar (Native untuk Aksara Dasar & Pepet: 500x500 dengan margin natural)
+    # View 0: Native bujur sangkar (500x500)
     v0_img = Image.new('RGB', (500, 500), (255, 255, 255))
     scale_0 = min(360 / max(sw, 1), 360 / max(sh, 1))
     nw0 = max(1, int(sw * scale_0))
@@ -228,14 +217,13 @@ def normalize_canvas_stroke(raw_img: Image.Image):
     r_stroke_0 = stroke.resize((nw0, nh0), Image.Resampling.LANCZOS)
     v0_img.paste(r_stroke_0, ((500 - nw0) // 2, (500 - nh0) // 2))
 
-    # 2. Card Domain: Kartu Putih Bersih 600x500 (Native untuk Suku, Wulu, Taling, Taling-Tarung)
+    # View Card: Kartu putih 600x500
     card_img = Image.new('RGB', (600, 500), (255, 255, 255))
     scale_c = min(360 / max(sw, 1), 340 / max(sh, 1))
     nwc = max(1, int(sw * scale_c))
     nhc = max(1, int(sh * scale_c))
     r_stroke_c = stroke.resize((nwc, nhc), Image.Resampling.LANCZOS)
 
-    # Baseline anchoring: Kongruen dengan distribusi tinggi & baseline dataset asli (y ~ 430)
     px = max(15, min(600 - nwc - 15, 245 - nwc // 2))
     py = max(15, min(500 - nhc - 10, 430 - nhc))
     card_img.paste(r_stroke_c, (px, py))
@@ -243,131 +231,171 @@ def normalize_canvas_stroke(raw_img: Image.Image):
     return v0_img, card_img
 
 
-def infer_probabilities(image_bytes: bytes) -> torch.Tensor:
-    """
-    Domain-Aware Hierarchical Consensus Fusion Inference Engine.
-    Menyelaraskan disparitas spasial & template antara berkas dataset asli dengan kanvas web:
-    - Jika citra berasal dari berkas unggahan: langsung diproses dengan standar paritas murni.
-    - Jika citra berasal dari kanvas digital (latar putih solid):
-      * Deteksi morfologis ekor sandhangan suku (kuadran kanan bawah).
-      * Deteksi morfologis glif sandhangan taling kiri dan tarung kanan.
-      * Routing domain-aware:
-        - Suku terdeteksi: View 1 (ultra-wide) untuk suku lebar, View 2 untuk suku medium.
-        - Taling murni (tanpa tarung): View 3 (683x540 native Taling) + View 2. Supresi Taling-Tarung palsu.
-        - Taling-Tarung (3 glif): View 1 (1528x540) + View 2.
-        - Aksara-dasar / Pepet / Wulu: View 0 (White 1:1) + View 2.
-    """
+def generate_multiview_canvas_tensors(card_norm: Image.Image, v0_norm: Image.Image) -> torch.Tensor:
+    """Menghasilkan 4-view tensor batch untuk kanvas tulis digital."""
+    v0 = image_transform(v0_norm)
+
+    t1 = Image.new('RGB', (1528, 540), (0, 0, 0))
+    t1.paste(card_norm, (464, 20))
+    v1 = image_transform(t1)
+
+    t2 = Image.new('RGB', (882, 540), (0, 0, 0))
+    t2.paste(card_norm, (140, 20))
+    v2 = image_transform(t2)
+
+    t3 = Image.new('RGB', (683, 540), (0, 0, 0))
+    t3.paste(card_norm, (41, 20))
+    v3 = image_transform(t3)
+
+    return torch.stack([v0, v1, v2, v3]).to(device)
+
+
+def blend_canvas_domain_probabilities(
+    probs: torch.Tensor,
+    has_suku: bool,
+    has_taling: bool,
+    has_tarung: bool
+) -> torch.Tensor:
+    """Menggabungkan konsensus multi-view probabilistik berdasarkan bukti morfologi kanvas."""
+    p_square = probs[0]
+    p_ultra_wide = probs[1]
+    p_medium_wide = probs[2]
+    p_taling = probs[3]
+
+    final_probs = torch.zeros_like(p_square)
+
+    if has_suku:
+        wide_suku_keys = ["su", "du", "pu", "bu", "dhu", "ju"]
+        wide_suku_score = sum(
+            p_ultra_wide[class_to_idx[f"suku_{k}"]].item()
+            for k in wide_suku_keys if f"suku_{k}" in class_to_idx
+        )
+        for idx in range(num_classes):
+            c_name = idx_to_class[idx]
+            if c_name.startswith("suku_"):
+                if wide_suku_score > 0.20:
+                    final_probs[idx] = p_ultra_wide[idx]
+                else:
+                    suku_type = c_name.split("_")[1]
+                    if suku_type in ["cu", "ku", "nu", "ru", "hu"]:
+                        final_probs[idx] = 0.85 * p_medium_wide[idx] + 0.15 * p_ultra_wide[idx]
+                    else:
+                        final_probs[idx] = p_ultra_wide[idx]
+            elif c_name.startswith("aksara-dasar_") or c_name.startswith("pepet_"):
+                final_probs[idx] = 0.25 * p_square[idx]
+            else:
+                final_probs[idx] = 0.15 * p_medium_wide[idx]
+
+    elif has_taling and not has_tarung:
+        for idx in range(num_classes):
+            cat = idx_to_class[idx].split('_')[0]
+            if cat == 'taling':
+                final_probs[idx] = 0.65 * p_taling[idx] + 0.35 * p_medium_wide[idx]
+            elif cat in ['aksara-dasar', 'pepet']:
+                final_probs[idx] = 0.25 * p_square[idx]
+            else:
+                final_probs[idx] = 0.10 * p_medium_wide[idx]
+
+    elif has_taling and has_tarung:
+        for idx in range(num_classes):
+            cat = idx_to_class[idx].split('_')[0]
+            if cat == 'taling-tarung':
+                final_probs[idx] = 0.70 * p_ultra_wide[idx] + 0.30 * p_medium_wide[idx]
+            elif cat in ['aksara-dasar', 'pepet']:
+                final_probs[idx] = 0.15 * p_square[idx]
+            else:
+                final_probs[idx] = 0.10 * p_medium_wide[idx]
+
+    else:
+        for idx in range(num_classes):
+            cat = idx_to_class[idx].split('_')[0]
+            if cat in ['aksara-dasar', 'pepet']:
+                final_probs[idx] = 0.80 * p_square[idx] + 0.20 * p_medium_wide[idx]
+            elif cat == 'wulu':
+                final_probs[idx] = 0.75 * p_medium_wide[idx] + 0.25 * p_square[idx]
+            else:
+                final_probs[idx] = 0.15 * p_square[idx]
+
+    p_sum = torch.sum(final_probs)
+    return final_probs / p_sum if p_sum > 0 else final_probs
+
+
+def infer_probabilities(image_bytes: bytes, is_canvas: bool = False) -> torch.Tensor:
+    """Domain-Aware Hierarchical Consensus Fusion Inference Engine."""
     raw_img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-    w, h = raw_img.size
-    aspect = w / max(h, 1)
 
-    arr_l = np.array(raw_img.convert('L'))
-    p = min(5, min(w, h))
-    corners = [
-        arr_l[:p, :p].mean(),
-        arr_l[:p, -p:].mean(),
-        arr_l[-p:, :p].mean(),
-        arr_l[-p:, -p:].mean()
-    ]
-    is_white_canvas = (0.7 <= aspect <= 1.4) and (float(np.mean(corners)) > 90.0)
-
-    # Jalur 1: Citra unggahan asli (di luar kanvas bujur sangkar putih)
-    if not is_white_canvas:
-        t = image_transform(raw_img).unsqueeze(0).to(device)
+    # Jalur 1: Citra unggahan asli (100% Paritas Murni dengan Training, Evaluasi & TFLite)
+    if not is_canvas:
+        tensor = image_transform(raw_img).unsqueeze(0).to(device)
         with torch.no_grad():
-            return F.softmax(model(t), dim=1)[0]
+            return F.softmax(model(tensor), dim=1)[0]
 
     # Jalur 2: Citra kanvas tulis web
     has_suku, _ = detect_suku_descender(raw_img)
     has_taling, has_tarung = detect_taling_and_tarung(raw_img)
     v0_norm, card_norm = normalize_canvas_stroke(raw_img)
 
-    # View 0: Native domain aksara-dasar & pepet (Bujur Sangkar Putih 500x500)
-    v0 = image_transform(v0_norm)
-
-    # View 1: Native domain suku lebar (Du, Su, Bu, Dhu, Lu, Mu, Pu, dll) & taling-tarung (1528x540)
-    t1 = Image.new('RGB', (1528, 540), (0, 0, 0))
-    t1.paste(card_norm, (464, 20))
-    v1 = image_transform(t1)
-
-    # View 2: Native domain suku medium (Cu: 882x540) serta Wulu
-    t2 = Image.new('RGB', (882, 540), (0, 0, 0))
-    t2.paste(card_norm, (140, 20))
-    v2 = image_transform(t2)
-
-    # View 3: Native domain Taling 2 glif (683x540)
-    t3 = Image.new('RGB', (683, 540), (0, 0, 0))
-    t3.paste(card_norm, (41, 20))
-    v3 = image_transform(t3)
-
-    batch = torch.stack([v0, v1, v2, v3]).to(device)
+    batch = generate_multiview_canvas_tensors(card_norm, v0_norm)
     with torch.no_grad():
         logits = model(batch)
-        probs = F.softmax(logits, dim=1)  # shape: (4, num_classes)
+        probs = F.softmax(logits, dim=1)
 
-    p_v0 = probs[0]  # White 1:1
-    p_v1 = probs[1]  # 1528x540 Ultra-wide
-    p_v2 = probs[2]  # 882x540 Medium-wide
-    p_v3 = probs[3]  # 683x540 Native Taling
+    return blend_canvas_domain_probabilities(probs, has_suku, has_taling, has_tarung)
 
-    final_probs = torch.zeros_like(p_v0)
 
-    if has_suku:
-        # Sandhangan Suku terdeteksi secara fisik via morfologi ekor kuadran kanan bawah
-        # Supresi aksara-dasar & pepet ke 0.0
-        wide_suku_keys = ["su", "du", "pu", "bu", "dhu", "ju"]
-        wide_suku_score = sum(p_v1[class_to_idx[f"suku_{k}"]].item() for k in wide_suku_keys if f"suku_{k}" in class_to_idx)
+def format_top_predictions(probabilities: torch.Tensor, top_k: int = 5) -> list[dict]:
+    """Mengonversi tensor probabilitas menjadi daftar kandidat teratas beserta metadata."""
+    top_probs, top_indices = torch.topk(probabilities, k=min(top_k, num_classes))
+    top_results = []
+    for prob, idx in zip(top_probs, top_indices):
+        c_name = idx_to_class[idx.item()]
+        c_details = get_aksara_details(c_name)
+        top_results.append({
+            "class_name": c_name,
+            "confidence": round(prob.item() * 100, 2),
+            "unicode_char": c_details["unicode_char"],
+            "latin": c_details["latin"],
+            "category": c_details["category"],
+            "category_name": c_details["category_name"],
+            "desc": c_details["desc"],
+            "base_consonant": c_details.get("base_consonant", "Baku"),
+            "vowel": c_details.get("vowel", "a"),
+            "position": c_details.get("position", "Bentuk Baku")
+        })
+    return top_results
 
-        if wide_suku_score > 0.20:
-            # Karakter rumpun multi-punuk lebar (Su, Du, Pu, Ju, Bu, Dhu): Gunakan View 1 secara eksklusif, supresi Cu View 2
-            for idx in range(num_classes):
-                c_name = idx_to_class[idx]
-                if c_name.startswith("suku_"):
-                    if c_name == "suku_cu":
-                        final_probs[idx] = p_v1[idx] * 0.01
-                    else:
-                        final_probs[idx] = p_v1[idx]
+
+def evaluate_quiz_match(
+    predicted_name: str,
+    target_class: str,
+    predicted_conf: float
+) -> tuple[str, bool, bool, str]:
+    """Mengevaluasi kesesuaian antara aksara prediksi model dan target kuis."""
+    pred_details = get_aksara_details(predicted_name)
+    target_details = get_aksara_details(target_class)
+
+    is_exact = (predicted_name == target_class)
+    is_close = False
+
+    if is_exact:
+        if predicted_conf >= 75.0:
+            verdict = "EXACT"
+            feedback = "Luar biasa! Bentuk dan proporsi aksara yang Anda tulis sangat tepat dan jelas."
         else:
-            # Karakter rumpun sempit/medium (Cu, Ku, Nu, Ru, Hu): View 2 primer
-            for idx in range(num_classes):
-                c_name = idx_to_class[idx]
-                if c_name.startswith("suku_"):
-                    suku_type = c_name.split("_")[1]
-                    if suku_type in ["cu", "ku", "nu", "ru", "hu"]:
-                        final_probs[idx] = 0.85 * p_v2[idx] + 0.15 * p_v1[idx]
-                    else:
-                        final_probs[idx] = p_v1[idx]
-
-    elif has_taling and not has_tarung:
-        # Sandhangan Taling Murni (2 glif: taling kiri + konsonan kanan, tanpa tarung)
-        # Menolak proyeksi palsu Go / Po dari template 1528x540
-        for idx in range(num_classes):
-            c_name = idx_to_class[idx]
-            cat = c_name.split('_')[0]
-            if cat == 'taling':
-                final_probs[idx] = 0.55 * p_v3[idx] + 0.45 * p_v2[idx]
-
-    elif has_taling and has_tarung:
-        # Sandhangan Taling-Tarung (3 glif: taling kiri + konsonan tengah + tarung kanan)
-        for idx in range(num_classes):
-            c_name = idx_to_class[idx]
-            cat = c_name.split('_')[0]
-            if cat == 'taling-tarung':
-                final_probs[idx] = 0.70 * p_v1[idx] + 0.30 * p_v2[idx]
-
+            verdict = "GOOD"
+            feedback = "Aksara sudah tepat, namun goresan dapat dipertegas agar tingkat kepastian model lebih tinggi."
     else:
-        # Karakter Aksara Dasar (Nglegena), Pepet, atau Wulu
-        for idx in range(num_classes):
-            c_name = idx_to_class[idx]
-            cat = c_name.split('_')[0]
-            if cat in ['aksara-dasar', 'pepet']:
-                final_probs[idx] = 0.75 * p_v0[idx] + 0.25 * p_v2[idx]
-            elif cat == 'wulu':
-                final_probs[idx] = 0.75 * p_v2[idx] + 0.25 * p_v0[idx]
+        if pred_details.get("base_consonant") == target_details.get("base_consonant"):
+            is_close = True
+            verdict = "SANDHANGAN_MISMATCH"
+            feedback = (f"Aksara dasar sudah benar ({target_details['base_consonant']}), "
+                        f"namun sandhangan tertukar dengan {pred_details['category_name']}.")
+        else:
+            verdict = "INCORRECT"
+            feedback = (f"Kurang tepat. Model mendeteksi aksara '{pred_details['latin']}' "
+                        f"({pred_details['unicode_char']}), sedangkan target yang diminta adalah '{target_details['latin']}' ({target_details['unicode_char']}).")
 
-    # Normalisasi kembali probabilitas agar sum = 1
-    final_probs = final_probs / torch.sum(final_probs)
-    return final_probs
+    return verdict, is_exact, is_close, feedback
 
 
 # ---------------------------------------------------------
@@ -386,39 +414,23 @@ async def predict_aksara(file: UploadFile = File(...)):
         if not image_bytes:
             raise HTTPException(status_code=400, detail="File citra kosong.")
 
-        probabilities = infer_probabilities(image_bytes)
-
-        # Ambil Top 5 prediksi
-        top5_probs, top5_indices = torch.topk(probabilities, k=min(5, num_classes))
-
-        top5_results = []
-        for prob, idx in zip(top5_probs, top5_indices):
-            c_name = idx_to_class[idx.item()]
-            c_details = get_aksara_details(c_name)
-            top5_results.append({
-                "class_name": c_name,
-                "confidence": round(prob.item() * 100, 2),
-                "unicode_char": c_details["unicode_char"],
-                "latin": c_details["latin"],
-                "category": c_details["category"],
-                "category_name": c_details["category_name"],
-                "desc": c_details["desc"],
-                "base_consonant": c_details.get("base_consonant", "Baku"),
-                "vowel": c_details.get("vowel", "a"),
-                "position": c_details.get("position", "Bentuk Baku")
-            })
+        is_canvas = (file.filename == CANVAS_HANDWRITING_FILENAME)
+        probabilities = infer_probabilities(image_bytes, is_canvas=is_canvas)
+        top5_results = format_top_predictions(probabilities, top_k=5)
 
         best_result = top5_results[0]
         top1_conf = best_result.get("confidence", 0.0)
-        CONFIDENCE_THRESHOLD = 50.0
-        is_confident = bool(top1_conf >= CONFIDENCE_THRESHOLD)
+        is_confident = bool(top1_conf >= DEFAULT_CONFIDENCE_THRESHOLD)
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
         return {
             "status": "success",
             "is_confident": is_confident,
-            "threshold": CONFIDENCE_THRESHOLD,
-            "clarification_message": None if is_confident else f"Tulisan kurang jelas (Tingkat Keyakinan {top1_conf}% < {CONFIDENCE_THRESHOLD}%). Apakah yang kamu maksud salah satu dari 5 kemungkinan teratas ini?",
+            "threshold": DEFAULT_CONFIDENCE_THRESHOLD,
+            "clarification_message": None if is_confident else (
+                f"Tulisan kurang jelas (Tingkat Keyakinan {top1_conf}% < {DEFAULT_CONFIDENCE_THRESHOLD}%). "
+                f"Apakah yang kamu maksud salah satu dari 5 kemungkinan teratas ini?"
+            ),
             "predicted": best_result,
             "top5": top5_results,
             "latency_ms": elapsed_ms,
@@ -442,38 +454,15 @@ async def verify_aksara(
     start_time = time.perf_counter()
     try:
         image_bytes = await file.read()
-        probabilities = infer_probabilities(image_bytes)
+        probabilities = infer_probabilities(image_bytes, is_canvas=True)
 
         top_prob, top_idx = torch.max(probabilities, dim=0)
         predicted_name = idx_to_class[top_idx.item()]
         predicted_conf = round(top_prob.item() * 100, 2)
 
-        pred_details = get_aksara_details(predicted_name)
-        target_details = get_aksara_details(target_class)
-
-        # Evaluasi kecocokan
-        is_exact = (predicted_name == target_class)
-        is_close = False
-
-        if is_exact:
-            if predicted_conf >= 75.0:
-                verdict = "EXACT"
-                feedback = "Luar biasa! Bentuk dan proporsi aksara yang Anda tulis sangat tepat dan jelas."
-            else:
-                verdict = "GOOD"
-                feedback = "Aksara sudah tepat, namun goresan dapat dipertegas agar tingkat kepastian model lebih tinggi."
-        else:
-            # Periksa apakah konsonan dasarnya sama tapi sandhangannya tertukar
-            if pred_details.get("base_consonant") == target_details.get("base_consonant"):
-                is_close = True
-                verdict = "SANDHANGAN_MISMATCH"
-                feedback = (f"Aksara dasar sudah benar ({target_details['base_consonant']}), "
-                            f"namun sandhangan tertukar dengan {pred_details['category_name']}.")
-            else:
-                verdict = "INCORRECT"
-                feedback = (f"Kurang tepat. Model mendeteksi aksara '{pred_details['latin']}' "
-                            f"({pred_details['unicode_char']}), sedangkan target yang diminta adalah '{target_details['latin']}' ({target_details['unicode_char']}).")
-
+        verdict, is_exact, is_close, feedback = evaluate_quiz_match(
+            predicted_name, target_class, predicted_conf
+        )
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
         return {
@@ -483,8 +472,8 @@ async def verify_aksara(
             "is_close": is_close,
             "confidence": predicted_conf,
             "feedback": feedback,
-            "predicted": pred_details,
-            "target": target_details,
+            "predicted": get_aksara_details(predicted_name),
+            "target": get_aksara_details(target_class),
             "latency_ms": elapsed_ms
         }
     except Exception as e:

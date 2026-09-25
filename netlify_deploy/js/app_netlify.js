@@ -163,7 +163,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // Konfigurasi opsi eksekusi WebAssembly
-      ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 2);
+      if (typeof self !== 'undefined' && self.crossOriginIsolated) {
+        ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 2);
+      } else {
+        ort.env.wasm.numThreads = 1; // Single-thread murni jika isolasi origin tidak aktif
+      }
       ort.env.wasm.simd = true;
 
       // Buat Inference Session
@@ -310,20 +314,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   const IMAGENET_MEAN = [0.485, 0.456, 0.406];
   const IMAGENET_STD = [0.229, 0.224, 0.225];
 
-  function getInkBoundingBox(c) {
-    const w = c.width;
-    const h = c.height;
-    const imgData = c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h);
-    const data = imgData.data;
+  function getInkBoundingBox(sourceCanvas) {
+    const width = sourceCanvas.width;
+    const height = sourceCanvas.height;
+    const imgData = sourceCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height);
+    const pixelData = imgData.data;
 
-    let minX = w, maxX = -1, minY = h, maxY = -1;
-    let inkPoints = [];
+    let minX = width, maxX = -1, minY = height, maxY = -1;
+    const inkPoints = [];
 
     // Perimeter guard: skip 4 border pixels
-    for (let y = 4; y < h - 4; y++) {
-      for (let x = 4; x < w - 4; x++) {
-        const idx = (y * w + x) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+    for (let y = 4; y < height - 4; y++) {
+      for (let x = 4; x < width - 4; x++) {
+        const offset = (y * width + x) * 4;
+        const r = pixelData[offset];
+        const g = pixelData[offset + 1];
+        const b = pixelData[offset + 2];
         const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
 
         if (brightness < 190) {
@@ -342,77 +348,84 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function detectSukuDescenderJS(bbox) {
     if (!bbox) return { hasSuku: false, ratio: 0.0 };
-    const { minX, minY, maxY, sw, sh, inkPoints } = bbox;
+    const { minX, sw, inkPoints } = bbox;
     const xCutoff = minX + 0.55 * sw;
 
     let bodyMaxY = -1, tailMaxY = -1, bodyMinY = 9999;
 
-    for (const pt of inkPoints) {
-      if (pt.x <= xCutoff) {
-        if (pt.y > bodyMaxY) bodyMaxY = pt.y;
-        if (pt.y < bodyMinY) bodyMinY = pt.y;
+    for (const point of inkPoints) {
+      if (point.x <= xCutoff) {
+        if (point.y > bodyMaxY) bodyMaxY = point.y;
+        if (point.y < bodyMinY) bodyMinY = point.y;
       } else {
-        if (pt.y > tailMaxY) tailMaxY = pt.y;
+        if (point.y > tailMaxY) tailMaxY = point.y;
       }
     }
 
     if (bodyMaxY === -1 || tailMaxY === -1) return { hasSuku: false, ratio: 0.0 };
 
-    const bodyH = Math.max(1, bodyMaxY - bodyMinY + 1);
+    const bodyHeight = Math.max(1, bodyMaxY - bodyMinY + 1);
     const descenderPx = tailMaxY - bodyMaxY;
-    const ratio = descenderPx / bodyH;
+    const ratio = descenderPx / bodyHeight;
 
-    const hasSuku = (descenderPx >= 20) && (ratio >= 0.25);
+    const hasSuku = (descenderPx >= 35) && (ratio >= 0.35);
     return { hasSuku, ratio: Math.max(0, ratio) };
   }
 
   function detectTalingAndTarungJS(bbox) {
     if (!bbox) return { hasTaling: false, hasTarung: false };
-    const { minX, minY, maxY, sw, sh, inkPoints } = bbox;
+    const { minX, sw, sh, inkPoints } = bbox;
     const aspect = sw / Math.max(sh, 1);
-    if (aspect < 0.60) return { hasTaling: false, hasTarung: false };
+    if (aspect < 0.95) return { hasTaling: false, hasTarung: false };
 
-    const leftBoundary = minX + 0.48 * sw;
-    let leftCount = 0, rightCount = 0;
+    // Taling (ꦺ) wajib memuat celah pemisah vertikal (valley) antara glif taling kiri dan konsonan kanan
+    const valleyStart = minX + 0.20 * sw;
+    const valleyEnd = minX + 0.48 * sw;
+    const valleyColCounts = {};
+    let leftCount = 0;
     let leftMinY = 9999, leftMaxY = -1;
 
-    for (const pt of inkPoints) {
-      if (pt.x <= leftBoundary) {
+    for (const point of inkPoints) {
+      if (point.x >= valleyStart && point.x <= valleyEnd) {
+        const col = Math.round(point.x);
+        valleyColCounts[col] = (valleyColCounts[col] || 0) + 1;
+      }
+      if (point.x <= valleyStart) {
         leftCount++;
-        if (pt.y < leftMinY) leftMinY = pt.y;
-        if (pt.y > leftMaxY) leftMaxY = pt.y;
-      } else {
-        rightCount++;
+        if (point.y < leftMinY) leftMinY = point.y;
+        if (point.y > leftMaxY) leftMaxY = point.y;
       }
     }
 
-    if (leftCount < 15 || rightCount < 15) return { hasTaling: false, hasTarung: false };
+    const colVals = Object.values(valleyColCounts);
+    const minColVal = colVals.length > 0 ? Math.min(...colVals) : 999;
+    const leftHeight = leftMaxY - leftMinY + 1;
 
-    const leftH = leftMaxY - leftMinY + 1;
-    const hasTaling = (leftH >= 0.60 * sh);
+    const hasTaling = (minColVal <= 2) && (leftCount >= 15) && (leftHeight >= 0.55 * sh);
 
+    // Deteksi Tarung kanan (Aksara 3 glif)
     let hasTarung = false;
     if (aspect >= 1.25) {
-      const valleyStart = minX + 0.55 * sw;
-      const valleyEnd = minX + 0.88 * sw;
+      const tarungStart = minX + 0.55 * sw;
+      const tarungEnd = minX + 0.88 * sw;
+      const tarungColCounts = {};
       let farRightCount = 0;
-      let valleyColumnCounts = {};
 
-      for (const pt of inkPoints) {
-        if (pt.x >= valleyStart && pt.x <= valleyEnd) {
-          const col = Math.round(pt.x);
-          valleyColumnCounts[col] = (valleyColumnCounts[col] || 0) + 1;
+      for (const point of inkPoints) {
+        if (point.x >= tarungStart && point.x <= tarungEnd) {
+          const col = Math.round(point.x);
+          tarungColCounts[col] = (tarungColCounts[col] || 0) + 1;
         }
-        if (pt.x >= minX + 0.85 * sw) {
+        if (point.x >= minX + 0.85 * sw) {
           farRightCount++;
         }
       }
 
-      const minColVal = Object.keys(valleyColumnCounts).length > 0
-        ? Math.min(...Object.values(valleyColumnCounts))
-        : 0;
+      const tarungMin = Object.keys(tarungColCounts).length > 0
+        ? Math.min(...Object.values(tarungColCounts))
+        : 999;
 
-      if (minColVal <= 3 && farRightCount >= 25) {
+      if (tarungMin <= 3 && farRightCount >= 25) {
         hasTarung = true;
       }
     }
@@ -420,91 +433,91 @@ document.addEventListener('DOMContentLoaded', async () => {
     return { hasTaling, hasTarung };
   }
 
-  function renderStrokeToCard(srcCanvas, bbox) {
+  function renderStrokeToCard(sourceCanvas, bbox) {
     const { minX, minY, sw, sh } = bbox;
     const strokeCanvas = document.createElement('canvas');
     strokeCanvas.width = sw;
     strokeCanvas.height = sh;
-    strokeCanvas.getContext('2d').drawImage(srcCanvas, minX, minY, sw, sh, 0, 0, sw, sh);
+    strokeCanvas.getContext('2d').drawImage(sourceCanvas, minX, minY, sw, sh, 0, 0, sw, sh);
 
-    // View 0: Square 500x500
-    const v0Canvas = document.createElement('canvas');
-    v0Canvas.width = 500;
-    v0Canvas.height = 500;
-    const v0Ctx = v0Canvas.getContext('2d');
-    v0Ctx.fillStyle = '#FFFFFF';
-    v0Ctx.fillRect(0, 0, 500, 500);
+    // View 0: Native bujur sangkar 500x500
+    const canvasSquare = document.createElement('canvas');
+    canvasSquare.width = 500;
+    canvasSquare.height = 500;
+    const ctxSquare = canvasSquare.getContext('2d');
+    ctxSquare.fillStyle = '#FFFFFF';
+    ctxSquare.fillRect(0, 0, 500, 500);
     const scale0 = Math.min(360 / Math.max(sw, 1), 360 / Math.max(sh, 1));
     const nw0 = Math.max(1, Math.round(sw * scale0));
     const nh0 = Math.max(1, Math.round(sh * scale0));
-    v0Ctx.drawImage(strokeCanvas, 0, 0, sw, sh, Math.floor((500 - nw0) / 2), Math.floor((500 - nh0) / 2), nw0, nh0);
+    ctxSquare.drawImage(strokeCanvas, 0, 0, sw, sh, Math.floor((500 - nw0) / 2), Math.floor((500 - nh0) / 2), nw0, nh0);
 
-    // Card 600x500
-    const cardCanvas = document.createElement('canvas');
-    cardCanvas.width = 600;
-    cardCanvas.height = 500;
-    const cardCtx = cardCanvas.getContext('2d');
-    cardCtx.fillStyle = '#FFFFFF';
-    cardCtx.fillRect(0, 0, 600, 500);
+    // View Card: Kartu putih 600x500
+    const canvasCard = document.createElement('canvas');
+    canvasCard.width = 600;
+    canvasCard.height = 500;
+    const ctxCard = canvasCard.getContext('2d');
+    ctxCard.fillStyle = '#FFFFFF';
+    ctxCard.fillRect(0, 0, 600, 500);
     const scaleC = Math.min(360 / Math.max(sw, 1), 340 / Math.max(sh, 1));
     const nwc = Math.max(1, Math.round(sw * scaleC));
     const nhc = Math.max(1, Math.round(sh * scaleC));
     const px = Math.max(15, Math.min(600 - nwc - 15, Math.floor(245 - nwc / 2)));
     const py = Math.max(15, Math.min(500 - nhc - 10, 430 - nhc));
-    cardCtx.drawImage(strokeCanvas, 0, 0, sw, sh, px, py, nwc, nhc);
+    ctxCard.drawImage(strokeCanvas, 0, 0, sw, sh, px, py, nwc, nhc);
 
-    // View 1: 1528x540 Ultra-wide
-    const v1Canvas = document.createElement('canvas');
-    v1Canvas.width = 1528;
-    v1Canvas.height = 540;
-    const v1Ctx = v1Canvas.getContext('2d');
-    v1Ctx.fillStyle = '#000000';
-    v1Ctx.fillRect(0, 0, 1528, 540);
-    v1Ctx.drawImage(cardCanvas, 464, 20);
+    // View 1: Ultra-wide 1528x540
+    const canvasUltraWide = document.createElement('canvas');
+    canvasUltraWide.width = 1528;
+    canvasUltraWide.height = 540;
+    const ctxUltraWide = canvasUltraWide.getContext('2d');
+    ctxUltraWide.fillStyle = '#000000';
+    ctxUltraWide.fillRect(0, 0, 1528, 540);
+    ctxUltraWide.drawImage(canvasCard, 464, 20);
 
-    // View 2: 882x540 Medium-wide
-    const v2Canvas = document.createElement('canvas');
-    v2Canvas.width = 882;
-    v2Canvas.height = 540;
-    const v2Ctx = v2Canvas.getContext('2d');
-    v2Ctx.fillStyle = '#000000';
-    v2Ctx.fillRect(0, 0, 882, 540);
-    v2Ctx.drawImage(cardCanvas, 140, 20);
+    // View 2: Medium-wide 882x540
+    const canvasMediumWide = document.createElement('canvas');
+    canvasMediumWide.width = 882;
+    canvasMediumWide.height = 540;
+    const ctxMediumWide = canvasMediumWide.getContext('2d');
+    ctxMediumWide.fillStyle = '#000000';
+    ctxMediumWide.fillRect(0, 0, 882, 540);
+    ctxMediumWide.drawImage(canvasCard, 140, 20);
 
-    // View 3: 683x540 Native Taling
-    const v3Canvas = document.createElement('canvas');
-    v3Canvas.width = 683;
-    v3Canvas.height = 540;
-    const v3Ctx = v3Canvas.getContext('2d');
-    v3Ctx.fillStyle = '#000000';
-    v3Ctx.fillRect(0, 0, 683, 540);
-    v3Ctx.drawImage(cardCanvas, 41, 20);
+    // View 3: Native Taling 683x540
+    const canvasTaling = document.createElement('canvas');
+    canvasTaling.width = 683;
+    canvasTaling.height = 540;
+    const ctxTaling = canvasTaling.getContext('2d');
+    ctxTaling.fillStyle = '#000000';
+    ctxTaling.fillRect(0, 0, 683, 540);
+    ctxTaling.drawImage(canvasCard, 41, 20);
 
-    return { v0: v0Canvas, v1: v1Canvas, v2: v2Canvas, v3: v3Canvas };
+    return { canvasSquare, canvasUltraWide, canvasMediumWide, canvasTaling };
   }
 
-  function canvasToFloat32Tensor(c) {
-    const resized = document.createElement('canvas');
-    resized.width = 224;
-    resized.height = 224;
-    const rCtx = resized.getContext('2d');
-    rCtx.drawImage(c, 0, 0, c.width, c.height, 0, 0, 224, 224);
+  function canvasToFloat32Tensor(sourceCanvas) {
+    const resizedCanvas = document.createElement('canvas');
+    resizedCanvas.width = 224;
+    resizedCanvas.height = 224;
+    const ctxResized = resizedCanvas.getContext('2d');
+    ctxResized.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, 0, 0, 224, 224);
 
-    const imgData = rCtx.getImageData(0, 0, 224, 224).data;
-    const floatArr = new Float32Array(3 * 224 * 224);
+    const pixelData = ctxResized.getImageData(0, 0, 224, 224).data;
+    const floatArray = new Float32Array(3 * 224 * 224);
 
     for (let i = 0; i < 224 * 224; i++) {
-      const r = imgData[i * 4] / 255.0;
-      const g = imgData[i * 4 + 1] / 255.0;
-      const b = imgData[i * 4 + 2] / 255.0;
+      const r = pixelData[i * 4] / 255.0;
+      const g = pixelData[i * 4 + 1] / 255.0;
+      const b = pixelData[i * 4 + 2] / 255.0;
 
       // Planar RGB ordering [3, 224, 224]
-      floatArr[i] = (r - IMAGENET_MEAN[0]) / IMAGENET_STD[0];
-      floatArr[224 * 224 + i] = (g - IMAGENET_MEAN[1]) / IMAGENET_STD[1];
-      floatArr[2 * 224 * 224 + i] = (b - IMAGENET_MEAN[2]) / IMAGENET_STD[2];
+      floatArray[i] = (r - IMAGENET_MEAN[0]) / IMAGENET_STD[0];
+      floatArray[224 * 224 + i] = (g - IMAGENET_MEAN[1]) / IMAGENET_STD[1];
+      floatArray[2 * 224 * 224 + i] = (b - IMAGENET_MEAN[2]) / IMAGENET_STD[2];
     }
 
-    return new ort.Tensor('float32', floatArr, [1, 3, 224, 224]);
+    return new ort.Tensor('float32', floatArray, [1, 3, 224, 224]);
   }
 
   function softmax(logits) {
@@ -515,134 +528,126 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // =========================================================
+  // =========================================================
   // 4. In-Browser Multi-View Consensus Inference
   // =========================================================
-  async function runClientInference(sourceCanvas, isUploaded = false) {
-    if (!state.ortSession) {
-      throw new Error('Model ONNX belum siap. Silakan tunggu beberapa detik.');
+  function blendSukuProbabilities(viewProbs, state) {
+    const { probSquare, probUltraWide, probMediumWide } = viewProbs;
+    const probabilities = new Array(state.totalClasses).fill(0.0);
+    const wideSukuKeys = ['su', 'du', 'pu', 'bu', 'dhu', 'ju'];
+    let wideSukuScore = 0;
+
+    for (const key of wideSukuKeys) {
+      const classIndex = state.classToIdx[`suku_${key}`];
+      if (classIndex !== undefined) {
+        wideSukuScore += probUltraWide[classIndex];
+      }
     }
 
-    const startTime = performance.now();
-    let finalProbs = new Array(state.totalClasses).fill(0.0);
+    const isWideSukuDominant = (wideSukuScore >= 0.25);
 
-    if (isUploaded) {
-      // Direct single-pass inference untuk citra yang diunggah
-      const tensor = canvasToFloat32Tensor(sourceCanvas);
-      const results = await state.ortSession.run({ input: tensor });
-      const rawLogits = Array.from(results.output.data);
-      finalProbs = softmax(rawLogits);
-    } else {
-      // Kanvas Tulis: Domain-Aware Consensus Multi-View
-      const bbox = getInkBoundingBox(sourceCanvas);
-      if (!bbox) {
-        throw new Error('Kanvas kosong. Silakan tulis karakter aksara terlebih dahulu.');
-      }
-
-      const { hasSuku } = detectSukuDescenderJS(bbox);
-      const { hasTaling, hasTarung } = detectTalingAndTarungJS(bbox);
-      const views = renderStrokeToCard(sourceCanvas, bbox);
-
-      // Jalankan inferensi pada view
-      const t0 = canvasToFloat32Tensor(views.v0);
-      const t1 = canvasToFloat32Tensor(views.v1);
-      const t2 = canvasToFloat32Tensor(views.v2);
-      const t3 = canvasToFloat32Tensor(views.v3);
-
-      const [res0, res1, res2, res3] = await Promise.all([
-        state.ortSession.run({ input: t0 }),
-        state.ortSession.run({ input: t1 }),
-        state.ortSession.run({ input: t2 }),
-        state.ortSession.run({ input: t3 })
-      ]);
-
-      const p0 = softmax(Array.from(res0.output.data));
-      const p1 = softmax(Array.from(res1.output.data));
-      const p2 = softmax(Array.from(res2.output.data));
-      const p3 = softmax(Array.from(res3.output.data));
-
-      if (hasSuku) {
-        const wideSukuKeys = ['su', 'du', 'pu', 'bu', 'dhu', 'ju'];
-        let wideSukuScore = 0;
-        for (const k of wideSukuKeys) {
-          const idx = state.classToIdx[`suku_${k}`];
-          if (idx !== undefined) wideSukuScore += p1[idx];
-        }
-
-        for (let i = 0; i < state.totalClasses; i++) {
-          const cls = state.idxToClass[i] || '';
-          if (cls.startsWith('suku_')) {
-            finalProbs[i] = (wideSukuScore >= 0.25)
-              ? (0.80 * p1[i] + 0.20 * p2[i])
-              : (0.40 * p1[i] + 0.60 * p2[i]);
-          } else if (cls.startsWith('wulu_') || cls.startsWith('taling-tarung_') || cls.startsWith('taling_')) {
-            finalProbs[i] = 0.5 * p2[i];
-          } else {
-            finalProbs[i] = 0.0; // Supresi aksara-dasar & pepet
-          }
-        }
-      } else if (hasTaling && !hasTarung) {
-        // Taling 2-glif murni (contoh: Gé ꦺꦒ)
-        for (let i = 0; i < state.totalClasses; i++) {
-          const cls = state.idxToClass[i] || '';
-          if (cls.startsWith('taling_')) {
-            finalProbs[i] = 0.55 * p3[i] + 0.45 * p2[i];
-          } else if (cls.startsWith('taling-tarung_')) {
-            finalProbs[i] = 0.05 * p1[i]; // Supresi false positive Taling-Tarung
-          } else if (cls.startsWith('aksara-dasar_') || cls.startsWith('pepet_')) {
-            finalProbs[i] = 0.0;
-          } else {
-            finalProbs[i] = 0.35 * p2[i];
-          }
-        }
-      } else if (hasTaling && hasTarung) {
-        // Taling-Tarung 3-glif (contoh: Go ꦺꦒꦴ)
-        for (let i = 0; i < state.totalClasses; i++) {
-          const cls = state.idxToClass[i] || '';
-          if (cls.startsWith('taling-tarung_')) {
-            finalProbs[i] = 0.70 * p1[i] + 0.30 * p2[i];
-          } else if (cls.startsWith('taling_')) {
-            finalProbs[i] = 0.10 * p3[i];
-          } else {
-            finalProbs[i] = 0.20 * p2[i];
-          }
-        }
+    for (let i = 0; i < state.totalClasses; i++) {
+      const className = state.idxToClass[i] || '';
+      if (className.startsWith('suku_')) {
+        probabilities[i] = isWideSukuDominant
+          ? (0.80 * probUltraWide[i] + 0.20 * probMediumWide[i])
+          : (0.40 * probUltraWide[i] + 0.60 * probMediumWide[i]);
+      } else if (className.startsWith('wulu_') || className.startsWith('taling-tarung_') || className.startsWith('taling_')) {
+        probabilities[i] = 0.35 * probMediumWide[i];
+      } else if (className.startsWith('aksara-dasar_') || className.startsWith('pepet_')) {
+        probabilities[i] = 0.25 * probSquare[i];
       } else {
-        // Aksara-dasar / Pepet / Wulu
-        for (let i = 0; i < state.totalClasses; i++) {
-          const cls = state.idxToClass[i] || '';
-          if (cls.startsWith('aksara-dasar_') || cls.startsWith('pepet_')) {
-            finalProbs[i] = 0.60 * p0[i] + 0.40 * p2[i];
-          } else if (cls.startsWith('wulu_')) {
-            finalProbs[i] = 0.30 * p0[i] + 0.70 * p2[i];
-          } else if (cls.startsWith('suku_')) {
-            finalProbs[i] = 0.15 * p2[i];
-          } else {
-            finalProbs[i] = 0.20 * p2[i];
-          }
-        }
-      }
-
-      // Normalisasi probabilitas agar sum = 1
-      const pSum = finalProbs.reduce((a, b) => a + b, 0);
-      if (pSum > 0) {
-        finalProbs = finalProbs.map(v => v / pSum);
+        probabilities[i] = 0.15 * probMediumWide[i];
       }
     }
+    return probabilities;
+  }
 
-    const latencyMs = Math.round(performance.now() - startTime);
+  function blendTalingProbabilities(viewProbs, state) {
+    const { probSquare, probUltraWide, probMediumWide, probTaling } = viewProbs;
+    const probabilities = new Array(state.totalClasses).fill(0.0);
 
-    // Format Top-5
+    for (let i = 0; i < state.totalClasses; i++) {
+      const className = state.idxToClass[i] || '';
+      if (className.startsWith('taling_')) {
+        probabilities[i] = 0.65 * probTaling[i] + 0.35 * probMediumWide[i];
+      } else if (className.startsWith('taling-tarung_')) {
+        probabilities[i] = 0.05 * probUltraWide[i];
+      } else if (className.startsWith('aksara-dasar_') || className.startsWith('pepet_')) {
+        probabilities[i] = 0.25 * probSquare[i];
+      } else {
+        probabilities[i] = 0.15 * probMediumWide[i];
+      }
+    }
+    return probabilities;
+  }
+
+  function blendTalingTarungProbabilities(viewProbs, state) {
+    const { probSquare, probUltraWide, probMediumWide, probTaling } = viewProbs;
+    const probabilities = new Array(state.totalClasses).fill(0.0);
+
+    for (let i = 0; i < state.totalClasses; i++) {
+      const className = state.idxToClass[i] || '';
+      if (className.startsWith('taling-tarung_')) {
+        probabilities[i] = 0.70 * probUltraWide[i] + 0.30 * probMediumWide[i];
+      } else if (className.startsWith('taling_')) {
+        probabilities[i] = 0.10 * probTaling[i];
+      } else if (className.startsWith('aksara-dasar_') || className.startsWith('pepet_')) {
+        probabilities[i] = 0.15 * probSquare[i];
+      } else {
+        probabilities[i] = 0.10 * probMediumWide[i];
+      }
+    }
+    return probabilities;
+  }
+
+  function blendBaseGlyphProbabilities(viewProbs, state) {
+    const { probSquare, probMediumWide } = viewProbs;
+    const probabilities = new Array(state.totalClasses).fill(0.0);
+
+    for (let i = 0; i < state.totalClasses; i++) {
+      const className = state.idxToClass[i] || '';
+      if (className.startsWith('aksara-dasar_') || className.startsWith('pepet_')) {
+        probabilities[i] = 0.80 * probSquare[i] + 0.20 * probMediumWide[i];
+      } else if (className.startsWith('wulu_')) {
+        probabilities[i] = 0.75 * probMediumWide[i] + 0.25 * probSquare[i];
+      } else {
+        probabilities[i] = 0.15 * probSquare[i];
+      }
+    }
+    return probabilities;
+  }
+
+  function blendDomainProbabilities(morphology, viewProbs, state) {
+    const { hasSuku, hasTaling, hasTarung } = morphology;
+    let blended;
+
+    if (hasSuku) {
+      blended = blendSukuProbabilities(viewProbs, state);
+    } else if (hasTaling && !hasTarung) {
+      blended = blendTalingProbabilities(viewProbs, state);
+    } else if (hasTaling && hasTarung) {
+      blended = blendTalingTarungProbabilities(viewProbs, state);
+    } else {
+      blended = blendBaseGlyphProbabilities(viewProbs, state);
+    }
+
+    const totalSum = blended.reduce((acc, val) => acc + val, 0);
+    return totalSum > 0 ? blended.map(val => val / totalSum) : blended;
+  }
+
+  function formatPredictionResults(finalProbs, latencyMs) {
     const candidates = finalProbs.map((prob, idx) => ({
       class_name: state.idxToClass[idx],
       confidence: parseFloat((prob * 100).toFixed(2))
     }));
 
     candidates.sort((a, b) => b.confidence - a.confidence);
-    const top5 = candidates.slice(0, 5).map(c => {
-      const meta = window.AKSARA_DATABASE ? window.AKSARA_DATABASE[c.class_name] : null;
+    const top5 = candidates.slice(0, 5).map(candidate => {
+      const meta = window.AKSARA_DATABASE ? window.AKSARA_DATABASE[candidate.class_name] : null;
       return {
-        ...c,
-        latin: meta ? meta.latin : c.class_name,
+        ...candidate,
+        latin: meta ? meta.latin : candidate.class_name,
         unicode_char: meta ? meta.unicode_char : 'ꦄ',
         category: meta ? meta.category : 'Aksara',
         category_name: meta ? meta.category_name : 'Aksara Jawa',
@@ -653,7 +658,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       };
     });
 
-    const predicted = top5[0];
+    const predicted = top5[0] || { class_name: 'Unknown', confidence: 0.0 };
     const isConfident = predicted.confidence >= 50.0;
 
     return {
@@ -665,8 +670,55 @@ document.addEventListener('DOMContentLoaded', async () => {
       latency_ms: latencyMs,
       top5,
       clarification_message: isConfident ? null :
-        `Goresan dinilai ambigu atau kurang jelas sehingga belum mencapai ambang batas keyakinan 50.0%. AI menemukan 5 kemungkinan terdekat berikut. Silakan klik aksara yang kamu maksud:`
+        'Goresan dinilai ambigu atau belum mencapai ambang batas keyakinan 50.0%. AI menemukan 5 kemungkinan terdekat berikut. Silakan klik aksara yang kamu maksud:'
     };
+  }
+
+  async function runClientInference(sourceCanvas, isUploaded = false) {
+    if (!state.ortSession) {
+      throw new Error('Model ONNX belum siap. Silakan tunggu beberapa detik.');
+    }
+
+    const startTime = performance.now();
+    let finalProbs = [];
+
+    if (isUploaded) {
+      // Direct single-pass inference untuk citra yang diunggah
+      const tensor = canvasToFloat32Tensor(sourceCanvas);
+      const results = await state.ortSession.run({ input: tensor });
+      finalProbs = softmax(Array.from(results.output.data));
+    } else {
+      // Kanvas Tulis: Domain-Aware Consensus Multi-View
+      const bbox = getInkBoundingBox(sourceCanvas);
+      if (!bbox) {
+        throw new Error('Kanvas kosong. Silakan tulis karakter aksara terlebih dahulu.');
+      }
+
+      const morphology = {
+        ...detectSukuDescenderJS(bbox),
+        ...detectTalingAndTarungJS(bbox)
+      };
+
+      const views = renderStrokeToCard(sourceCanvas, bbox);
+      const [resSquare, resUltraWide, resMediumWide, resTaling] = await Promise.all([
+        state.ortSession.run({ input: canvasToFloat32Tensor(views.canvasSquare) }),
+        state.ortSession.run({ input: canvasToFloat32Tensor(views.canvasUltraWide) }),
+        state.ortSession.run({ input: canvasToFloat32Tensor(views.canvasMediumWide) }),
+        state.ortSession.run({ input: canvasToFloat32Tensor(views.canvasTaling) })
+      ]);
+
+      const viewProbs = {
+        probSquare: softmax(Array.from(resSquare.output.data)),
+        probUltraWide: softmax(Array.from(resUltraWide.output.data)),
+        probMediumWide: softmax(Array.from(resMediumWide.output.data)),
+        probTaling: softmax(Array.from(resTaling.output.data))
+      };
+
+      finalProbs = blendDomainProbabilities(morphology, viewProbs, state);
+    }
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    return formatPredictionResults(finalProbs, latencyMs);
   }
 
   // =========================================================
