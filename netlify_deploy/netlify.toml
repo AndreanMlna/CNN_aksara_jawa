@@ -1,11 +1,8 @@
 # ==============================================================================
-# Netlify Configuration - AksaraAI Studio
-# Standar: Zero-Config Deployment with In-Browser WebAssembly ONNX Runtime
+# Netlify Configuration (Subdirectory) - AksaraAI Studio
 # ==============================================================================
 
 [build]
-  # Set base directory ke netlify_deploy agar Netlify TIDAK memicu auto-install requirements.txt
-  base = "netlify_deploy"
   publish = "."
 
 [[headers]]
