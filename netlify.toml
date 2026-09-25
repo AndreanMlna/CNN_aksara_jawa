@@ -1,0 +1,39 @@
+# ==============================================================================
+# Netlify Configuration - AksaraAI Studio
+# Standar: Principal ML Engineer / Decoupled Cloud Architecture
+# ==============================================================================
+
+[build]
+  # Direktori publik frontend statis (HTML, CSS, JS)
+  publish = "web"
+
+# ------------------------------------------------------------------------------
+# 1. Penyelarasan Path Aset Statis (/static/* -> /*)
+# Memastikan /static/css/style.css dan /static/js/*.js otomatis diarahkan ke folder web/
+# ------------------------------------------------------------------------------
+[[redirects]]
+  from = "/static/*"
+  to = "/:splat"
+  status = 200
+
+# ------------------------------------------------------------------------------
+# 2. Netlify API Reverse Proxy (Menghubungkan Frontend Netlify ke Backend AI)
+# Masukkan URL Backend FastAPI Anda setelah dideploy ke Render / Hugging Face Spaces.
+# Fitur ini mengeliminasi masalah CORS dan menjaga komunikasi tetap aman melalui HTTPS.
+# ------------------------------------------------------------------------------
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://NAMA-APP-ANDA.onrender.com/api/:splat"
+#   status = 200
+#   force = true
+
+# ------------------------------------------------------------------------------
+# 3. HTTP Security Headers
+# ------------------------------------------------------------------------------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
