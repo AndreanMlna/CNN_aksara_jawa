@@ -460,8 +460,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctxCard.fillStyle = '#FFFFFF';
     ctxCard.fillRect(0, 0, 600, 500);
     const scaleC = Math.min(360 / Math.max(sw, 1), 340 / Math.max(sh, 1));
-    const nwc = Math.max(1, Math.round(sw * scaleC));
+    let nwc = Math.max(1, Math.round(sw * scaleC));
     const nhc = Math.max(1, Math.round(sh * scaleC));
+
+    // Adaptive width relaxation: Cegah kolaps punuk ganda (misal Ga -> Gu) saat goresan memiliki ekor suku panjang
+    if (nwc < 250 && sw / Math.max(sh, 1) < 0.85) {
+      nwc = Math.min(360, Math.max(nwc, Math.min(255, Math.round(nwc * 1.25))));
+    }
+
     const px = Math.max(15, Math.min(600 - nwc - 15, Math.floor(245 - nwc / 2)));
     const py = Math.max(15, Math.min(500 - nhc - 10, 430 - nhc));
     ctxCard.drawImage(strokeCanvas, 0, 0, sw, sh, px, py, nwc, nhc);
@@ -531,10 +537,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   // =========================================================
   // 4. In-Browser Multi-View Consensus Inference
   // =========================================================
+  const CONSONANTS_TO_SUKU_MAP = {
+    ga: 'gu', ra: 'ru', ka: 'ku', ca: 'cu', ba: 'bu',
+    ja: 'ju', da: 'du', sa: 'su', ta: 'tu', na: 'nu',
+    pa: 'pu', la: 'lu', ma: 'mu', wa: 'wu', ya: 'yu',
+    ha: 'hu', dha: 'dhu', tha: 'thu', nga: 'ngu', nya: 'nyu'
+  };
+
   function blendSukuProbabilities(viewProbs, state) {
     const { probSquare, probUltraWide, probMediumWide } = viewProbs;
     const probabilities = new Array(state.totalClasses).fill(0.0);
-    const wideSukuKeys = ['su', 'du', 'pu', 'bu', 'dhu', 'ju'];
+    
+    // Dataset-grounded: 16 kelas sandhangan suku dengan rasio ultra-wide (1528x540 / 1512x540)
+    const wideSukuKeys = [
+      'bu', 'dhu', 'du', 'gu', 'hu', 'ju', 'lu', 'mu',
+      'ngu', 'nyu', 'pu', 'su', 'thu', 'tu', 'wu', 'yu'
+    ];
     let wideSukuScore = 0;
 
     for (const key of wideSukuKeys) {
@@ -544,20 +562,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    const isWideSukuDominant = (wideSukuScore >= 0.25);
+    const isWideSukuDominant = (wideSukuScore >= 0.20);
+
+    // Bukti visual konsonan dasar dari View 0 (Square) untuk sinergi Bayesian
+    const baseEvidence = {};
+    for (const [baseC, sukuC] of Object.entries(CONSONANTS_TO_SUKU_MAP)) {
+      const baseIdx = state.classToIdx[`aksara-dasar_${baseC}`];
+      if (baseIdx !== undefined) {
+        baseEvidence[`suku_${sukuC}`] = probSquare[baseIdx] || 0.0;
+      }
+    }
 
     for (let i = 0; i < state.totalClasses; i++) {
       const className = state.idxToClass[i] || '';
       if (className.startsWith('suku_')) {
-        probabilities[i] = isWideSukuDominant
-          ? (0.80 * probUltraWide[i] + 0.20 * probMediumWide[i])
-          : (0.40 * probUltraWide[i] + 0.60 * probMediumWide[i]);
-      } else if (className.startsWith('wulu_') || className.startsWith('taling-tarung_') || className.startsWith('taling_')) {
-        probabilities[i] = 0.35 * probMediumWide[i];
+        const baseBoost = baseEvidence[className] || 0.0;
+        if (isWideSukuDominant) {
+          // UltraWide dominant dipadukan dengan preservasi bentuk glif Square & sinergi konsonan dasar
+          probabilities[i] = 0.70 * probUltraWide[i] + 0.15 * probMediumWide[i] + 0.15 * (probSquare[i] + baseBoost);
+        } else {
+          // Konsensus seimbang dengan kontribusi kuat Square & konsonan dasar
+          probabilities[i] = 0.40 * probUltraWide[i] + 0.40 * probMediumWide[i] + 0.20 * (probSquare[i] + baseBoost);
+        }
       } else if (className.startsWith('aksara-dasar_') || className.startsWith('pepet_')) {
-        probabilities[i] = 0.25 * probSquare[i];
+        probabilities[i] = 0.20 * probSquare[i];
+      } else if (className.startsWith('wulu_') || className.startsWith('taling-tarung_') || className.startsWith('taling_')) {
+        probabilities[i] = 0.25 * probMediumWide[i];
       } else {
-        probabilities[i] = 0.15 * probMediumWide[i];
+        probabilities[i] = 0.10 * probMediumWide[i];
       }
     }
     return probabilities;

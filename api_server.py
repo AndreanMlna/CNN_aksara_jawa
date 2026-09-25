@@ -222,6 +222,11 @@ def normalize_canvas_stroke(raw_img: Image.Image) -> tuple[Image.Image, Image.Im
     scale_c = min(360 / max(sw, 1), 340 / max(sh, 1))
     nwc = max(1, int(sw * scale_c))
     nhc = max(1, int(sh * scale_c))
+
+    # Adaptive width relaxation: Cegah kolaps punuk ganda (misal Ga -> Gu) saat goresan memiliki ekor suku panjang
+    if nwc < 250 and sw / max(sh, 1) < 0.85:
+        nwc = min(360, max(nwc, min(255, int(nwc * 1.25))))
+
     r_stroke_c = stroke.resize((nwc, nhc), Image.Resampling.LANCZOS)
 
     px = max(15, min(600 - nwc - 15, 245 - nwc // 2))
@@ -265,26 +270,44 @@ def blend_canvas_domain_probabilities(
     final_probs = torch.zeros_like(p_square)
 
     if has_suku:
-        wide_suku_keys = ["su", "du", "pu", "bu", "dhu", "ju"]
+        # Dataset-grounded: 16 kelas sandhangan suku dengan rasio ultra-wide (1528x540 / 1512x540)
+        wide_suku_keys = [
+            "bu", "dhu", "du", "gu", "hu", "ju", "lu", "mu",
+            "ngu", "nyu", "pu", "su", "thu", "tu", "wu", "yu"
+        ]
         wide_suku_score = sum(
             p_ultra_wide[class_to_idx[f"suku_{k}"]].item()
             for k in wide_suku_keys if f"suku_{k}" in class_to_idx
         )
+        is_wide_dom = (wide_suku_score >= 0.20)
+
+        # Sinergi Bayesian konsonan dasar dari View 0 (Square)
+        consonants_map = {
+            'ga': 'gu', 'ra': 'ru', 'ka': 'ku', 'ca': 'cu', 'ba': 'bu',
+            'ja': 'ju', 'da': 'du', 'sa': 'su', 'ta': 'tu', 'na': 'nu',
+            'pa': 'pu', 'la': 'lu', 'ma': 'mu', 'wa': 'wu', 'ya': 'yu',
+            'ha': 'hu', 'dha': 'dhu', 'tha': 'thu', 'nga': 'ngu', 'nya': 'nyu'
+        }
+        base_evidence = {}
+        for base_c, suku_c in consonants_map.items():
+            b_cls = f"aksara-dasar_{base_c}"
+            if b_cls in class_to_idx:
+                base_evidence[f"suku_{suku_c}"] = p_square[class_to_idx[b_cls]].item()
+
         for idx in range(num_classes):
             c_name = idx_to_class[idx]
             if c_name.startswith("suku_"):
-                if wide_suku_score > 0.20:
-                    final_probs[idx] = p_ultra_wide[idx]
+                base_boost = base_evidence.get(c_name, 0.0)
+                if is_wide_dom:
+                    final_probs[idx] = 0.70 * p_ultra_wide[idx] + 0.15 * p_medium_wide[idx] + 0.15 * (p_square[idx] + base_boost)
                 else:
-                    suku_type = c_name.split("_")[1]
-                    if suku_type in ["cu", "ku", "nu", "ru", "hu"]:
-                        final_probs[idx] = 0.85 * p_medium_wide[idx] + 0.15 * p_ultra_wide[idx]
-                    else:
-                        final_probs[idx] = p_ultra_wide[idx]
+                    final_probs[idx] = 0.40 * p_ultra_wide[idx] + 0.40 * p_medium_wide[idx] + 0.20 * (p_square[idx] + base_boost)
             elif c_name.startswith("aksara-dasar_") or c_name.startswith("pepet_"):
-                final_probs[idx] = 0.25 * p_square[idx]
+                final_probs[idx] = 0.20 * p_square[idx]
+            elif c_name.startswith("wulu_") or c_name.startswith("taling-tarung_") or c_name.startswith("taling_"):
+                final_probs[idx] = 0.25 * p_medium_wide[idx]
             else:
-                final_probs[idx] = 0.15 * p_medium_wide[idx]
+                final_probs[idx] = 0.10 * p_medium_wide[idx]
 
     elif has_taling and not has_tarung:
         for idx in range(num_classes):
