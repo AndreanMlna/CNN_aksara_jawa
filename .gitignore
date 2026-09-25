@@ -1,0 +1,131 @@
+# ==============================================================================
+# .gitignore - CNN-AKSARA-JAWA
+# Standar: Principal ML Engineer / PyTorch & Computer Vision Best Practices
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Lingkungan Python & Bytecode (Wajib Diabaikan)
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Packaging & Distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ------------------------------------------------------------------------------
+# 2. Dataset Fisik (Ukuran Ratusan MB / GB - Dilarang Masuk Git History)
+# ------------------------------------------------------------------------------
+dataset/
+data/
+raw_data/
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+
+# ------------------------------------------------------------------------------
+# 3. Model Weights & Heavy Checkpoints (File Binari Besar ~20MB - 100MB)
+# Gunakan Git LFS atau simpan di GitHub Releases / Google Drive.
+# File mapping index & label (JSON / TXT) TETAP DIIKUTKAN ke repo.
+# ------------------------------------------------------------------------------
+output/models/*.pth
+output/models/*.tflite
+output/models/*.onnx
+output/models/*.ptl
+output/models/*.h5
+output/models/*.bin
+output/models/*.ckpt
+output/logs/
+
+# JANGAN ABAIKAN file metadata mapping kelas yang dibutuhkan untuk inferensi:
+!output/models/class_indices.json
+!output/models/labels.txt
+
+# ------------------------------------------------------------------------------
+# 4. Berkas Gambar Sementara & Debugging di Root Folder
+# ------------------------------------------------------------------------------
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+# Pengecualian: Aset gambar web dan visualisasi plots tetap aman
+!/web/**
+!/docs/**
+!output/plots/**
+
+# File scratch script uji coba
+scratch_*.py
+scratch_*.png
+test_*.png
+crop_*.png
+simulated_*.png
+centered_*.png
+
+# ------------------------------------------------------------------------------
+# 5. IDE & Editor Metadata (User-Specific / Machine-Specific)
+# ------------------------------------------------------------------------------
+# JetBrains / PyCharm / IntelliJ
+.idea/workspace.xml
+.idea/usage.statistics.xml
+.idea/shelf/
+.idea/copilot.data.migration.ask2agent.xml
+.idea/*.log
+.idea/httpRequests/
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Sistem Operasi
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------------------------
+# 6. Agen AI & Antigravity Local Customizations
+# ------------------------------------------------------------------------------
+.agents/
+.gemini/
+GEMINI.md
+AGENTS.md
+CLAUDE.md
+

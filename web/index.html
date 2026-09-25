@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AksaraAI · Studio Pengenalan Citra Aksara Jawa Deep Learning</title>
+  <meta name="description" content="Aplikasi Web Pengenalan dan Klasifikasi Citra Aksara Jawa End-to-End dengan EfficientNet-B0 (120 Kelas) dan Paritas TFLite 98.30%.">
+  
+  <!-- Google Fonts: Plus Jakarta Sans, Outfit, & Noto Sans Javanese -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Javanese:wght@400;600;700&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Vanilla CSS Style -->
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <!-- Background Glow Accents -->
+  <div class="bg-glow glow-top-left" aria-hidden="true"></div>
+  <div class="bg-glow glow-bottom-right" aria-hidden="true"></div>
+
+  <!-- Header & Navbar -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-symbol" title="ꦄꦏ꧀ꦱꦫꦗꦮ">ꦄ</div>
+        <div class="brand-text">
+          <h1 class="brand-title">Aksara<span>AI</span> Studio</h1>
+          <p class="brand-subtitle">Computer Vision &amp; Deep Learning Aksara Jawa</p>
+        </div>
+      </div>
+
+      <div class="system-badges">
+        <div class="status-badge live" title="Model siap menerima inferensi">
+          <span class="status-dot"></span>
+          <span class="status-text">EfficientNet-B0 V2</span>
+        </div>
+        <div class="status-badge metric" title="Akurasi pada dataset validasi independen">
+          <span class="badge-icon">🎯</span>
+          <span>Akurasi: <strong>98.30%</strong></span>
+        </div>
+        <div class="status-badge parity" title="Paritas identik Float32 TFLite Android">
+          <span class="badge-icon">⚡</span>
+          <span>120 Kelas Terlatih</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="app-main">
+    <div class="workspace-grid">
+      
+      <!-- LEFT COLUMN: Input Workbench -->
+      <section class="workbench-card glass-panel" aria-label="Ruang Kerja Input">
+        <!-- Tab Navigation -->
+        <nav class="nav-tabs" role="tablist">
+          <button class="tab-btn active" id="tab-canvas-btn" role="tab" aria-selected="true" data-tab="tab-canvas">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg>
+            <span>Kanvas Tulis</span>
+          </button>
+          <button class="tab-btn" id="tab-upload-btn" role="tab" aria-selected="false" data-tab="tab-upload">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Unggah Gambar</span>
+          </button>
+          <button class="tab-btn" id="tab-quiz-btn" role="tab" aria-selected="false" data-tab="tab-quiz">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>Mode Kuis &amp; Latihan</span>
+          </button>
+          <button class="tab-btn" id="tab-catalog-btn" role="tab" aria-selected="false" data-tab="tab-catalog">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <span>Kamus Aksara</span>
+          </button>
+          <button class="tab-btn" id="tab-specs-btn" role="tab" aria-selected="false" data-tab="tab-specs">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+            <span>Info Model</span>
+          </button>
+        </nav>
+
+        <!-- Tab 1: Interactive Canvas -->
+        <div class="tab-content active" id="tab-canvas" role="tabpanel">
+          <div class="canvas-header">
+            <div class="canvas-title-group">
+              <span class="canvas-badge">Digital Drawing Pad</span>
+              <p class="canvas-instruction">Goreskan tulisan tangan Aksara Jawa pada area kanvas di bawah.</p>
+            </div>
+            
+            <div class="brush-controls">
+              <span class="control-label">Ketebalan:</span>
+              <input type="range" id="brush-size" min="3" max="18" value="6" class="slider" title="Atur ketebalan kuas">
+              <span id="brush-size-val" class="brush-indicator">6px</span>
+            </div>
+          </div>
+
+          <!-- Canvas Drawing Surface -->
+          <div class="canvas-viewport" id="canvas-container">
+            <canvas id="paint-canvas" width="448" height="448" aria-label="Kanvas gambar aksara"></canvas>
+            <div class="canvas-grid-overlay" aria-hidden="true"></div>
+            <div class="canvas-placeholder" id="canvas-placeholder">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+              <span>Sentuh atau klik &amp; tarik untuk mulai menulis</span>
+            </div>
+          </div>
+
+          <!-- Canvas Action Bar -->
+          <div class="canvas-actions">
+            <div class="left-actions">
+              <button class="btn btn-secondary" id="btn-undo" title="Urungkan goresan terakhir (Ctrl+Z)">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"/></svg>
+                <span>Undo</span>
+              </button>
+              <button class="btn btn-secondary" id="btn-clear" title="Bersihkan kanvas">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                <span>Bersihkan</span>
+              </button>
+            </div>
+
+            <div class="right-actions">
+              <button class="btn btn-primary btn-glow" id="btn-predict-canvas">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span>Klasifikasi Aksara</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Samples Strip -->
+          <div class="quick-samples">
+            <span class="samples-label">Coba Contoh Cepat:</span>
+            <div class="samples-chips">
+              <button class="chip" data-sample="suku_ju">ꦗꦸ Ju (Suku)</button>
+              <button class="chip" data-sample="suku_ru">ꦫꦸ Ru (Suku)</button>
+              <button class="chip" data-sample="suku_du">ꦢꦸ Du (Suku)</button>
+              <button class="chip" data-sample="suku_su">ꦱꦸ Su (Suku)</button>
+              <button class="chip" data-sample="suku_cu">ꦕꦸ Cu (Suku)</button>
+              <button class="chip" data-sample="ra">ꦫ Ra</button>
+              <button class="chip" data-sample="da">ꦢ Da</button>
+              <button class="chip" data-sample="sa">ꦱ Sa</button>
+              <button class="chip" data-sample="ca">ꦕ Ca</button>
+              <button class="chip" data-sample="wulu_hi">ꦲꦶ Hi (Wulu)</button>
+              <button class="chip" data-sample="taling_nge">ꦔꦺ Ngé (Taling)</button>
+            </div>
+          </div>
+
+          <!-- Anatomy Helper Card (Pembeda Ortografi Ju vs Pu, Ru vs Ra, Cu, Su, Du) -->
+          <div class="anatomy-guide-card" style="margin-top: 14px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; font-size: 0.82rem; color: var(--text-secondary, #94a3b8);">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; color: #f59e0b;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>Tips Anatomi Goresan Kanvas:</span>
+            </div>
+            <ul style="margin: 0; padding-left: 20px; line-height: 1.5;">
+              <li><strong style="color:#e2e8f0;">Ju (ꦗꦸ) vs Pu (ꦥꦸ) &amp; Wu (ꦮꦸ)</strong>: Aksara dasar <em>Ja (ꦗ)</em> memiliki 2 punuk di mana punuk kanan memiliki <strong>lekukan/lipatan ke dalam (inner loop/fold)</strong> sebelum ditarik turun menjadi ekor suku. Jika punuk kanan polos terbuka tanpa lipatan, AI akan mengenalinya sebagai <em>Pu (ꦥꦸ)</em>. Jika punuk kanan membulat tertutup, AI akan mengenalinya sebagai <em>Wu (ꦮꦸ)</em>.</li>
+              <li><strong style="color:#e2e8f0;">Ru (ꦫꦸ) vs Ra (ꦫ)</strong>: Aksara <em>Ra (ꦫ)</em> berbadan ramping (1 punuk kiri) tanpa ekor panjang. Untuk <em>Ru (ꦫꦸ)</em>, tarik kaki kanan ke bawah membentuk <strong>ekor sandhangan suku</strong> yang menjulur jelas di bawah garis dasar badan.</li>
+              <li><strong style="color:#e2e8f0;">Du (ꦢꦸ)</strong>: Lengkungan kiri polos/tanpa loop bawah, simpul lekukan berada di <em>rongga perut kanan</em>.</li>
+              <li><strong style="color:#e2e8f0;">Su (ꦱꦸ)</strong>: Dua kubah bulat melengkung (seperti bukit), simpul loop berada di <em>kaki bawah kiri</em>.</li>
+              <li><strong style="color:#e2e8f0;">Cu (ꦕꦸ)</strong>: Memiliki garis mendatar/puncak lancip siku di <em>kanan atas</em> dengan kaitan di bawah.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Tab 2: File Upload & Drag-Drop -->
+        <div class="tab-content" id="tab-upload" role="tabpanel">
+          <div class="upload-zone" id="drop-zone">
+            <input type="file" id="file-input" accept="image/png, image/jpeg, image/jpg, image/webp" class="file-hidden">
+            <div class="upload-content">
+              <div class="upload-icon-circle">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+              <h3 class="upload-title">Tarik &amp; Letakkan Gambar Aksara Jawa</h3>
+              <p class="upload-desc">Mendukung format PNG, JPG, JPEG, atau WebP resolusi tinggi</p>
+              <button class="btn btn-outline" id="btn-browse">Pilih dari Komputer</button>
+            </div>
+          </div>
+
+          <!-- Image Preview Container -->
+          <div class="preview-container hidden" id="preview-container">
+            <div class="preview-header">
+              <span class="preview-filename" id="preview-filename">image.png</span>
+              <button class="btn-icon" id="btn-remove-preview" title="Hapus gambar">✕</button>
+            </div>
+            <div class="preview-box">
+              <img id="image-preview" src="" alt="Pratinjau Citra Aksara">
+            </div>
+            <div class="preview-actions">
+              <button class="btn btn-primary btn-glow" id="btn-predict-upload">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span>Analisis Gambar Ini</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Practice & Quiz Mode -->
+        <div class="tab-content" id="tab-quiz" role="tabpanel">
+          <div class="quiz-container">
+            <!-- Sub-navigation: Mode Latihan Menulis vs Kuis Pilihan Ganda -->
+            <div class="quiz-subnav-bar">
+              <button class="quiz-subnav-btn active" id="btn-subnav-write" data-submode="write">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+                <span>Latihan Menulis (AI Vision)</span>
+              </button>
+              <button class="quiz-subnav-btn" id="btn-subnav-mcq" data-submode="mcq">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>Kuis Tebak Aksara (Pilihan Ganda)</span>
+              </button>
+            </div>
+
+            <!-- SUB-PANEL 1: LATIHAN MENULIS DENGAN KANVAS AI -->
+            <div class="quiz-subpanel" id="quiz-panel-write">
+              <div class="quiz-challenge-card">
+                <div class="quiz-header">
+                  <div class="quiz-tag-group">
+                    <span class="quiz-tag">Tantangan Menulis Aksara</span>
+                    <span class="quiz-cat-tag" id="quiz-target-category">Sandhangan Suku</span>
+                  </div>
+                  <div class="quiz-score-pill">
+                    <span>Skor: <strong id="quiz-score">0</strong></span>
+                    <span class="score-divider">|</span>
+                    <span>Streak: <strong id="quiz-streak">0 🔥</strong></span>
+                  </div>
+                </div>
+
+                <div class="quiz-target-display">
+                  <div class="target-glyph" id="quiz-target-char">ꦢꦸ</div>
+                  <div class="target-info">
+                    <h3 class="target-latin" id="quiz-target-latin">Tulis Aksara: "Du"</h3>
+                    <p class="target-desc" id="quiz-target-desc">Aksara Da diberi Sandhangan Suku (Vokal 'u')</p>
+                  </div>
+                </div>
+
+                <!-- Canvas Dedicated untuk Kuis / Latihan -->
+                <div class="quiz-canvas-section">
+                  <div class="quiz-canvas-toolbar">
+                    <div class="quiz-tool-left">
+                      <button class="btn btn-secondary btn-sm" id="btn-quiz-undo" type="button" title="Urungkan goresan">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"/></svg>
+                        <span>Undo</span>
+                      </button>
+                      <button class="btn btn-secondary btn-sm" id="btn-quiz-clear" type="button" title="Bersihkan kanvas kuis">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        <span>Bersihkan</span>
+                      </button>
+                      <button class="btn btn-outline btn-sm" id="btn-quiz-ghost" type="button" title="Tampilkan/sembunyikan bayangan aksara untuk panduan jiplak">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <span id="quiz-ghost-btn-text">Panduan Jiplak: ON</span>
+                      </button>
+                    </div>
+                    <div class="quiz-tool-right">
+                      <label for="quiz-brush-size" class="brush-label-sm">Kuas: <span id="quiz-brush-val">6px</span></label>
+                      <input type="range" id="quiz-brush-size" min="3" max="18" value="6" class="slider slider-sm">
+                    </div>
+                  </div>
+
+                  <div class="quiz-canvas-viewport">
+                    <canvas id="quiz-paint-canvas" width="448" height="380" aria-label="Kanvas latihan tulis aksara"></canvas>
+                    <div class="quiz-canvas-grid-overlay" aria-hidden="true"></div>
+                    <!-- Ghost Tracing Overlay (Siluet Bayangan Aksara untuk Berlatih Jiplak) -->
+                    <div class="quiz-ghost-overlay" id="quiz-ghost-overlay" aria-hidden="true">ꦢꦸ</div>
+                    <div class="ghost-badge-indicator" id="ghost-badge-indicator">
+                      <span>👻 Panduan Jiplak Aktif</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="quiz-controls-bar">
+                  <button class="btn btn-secondary" id="btn-quiz-shuffle" type="button">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                    <span>Ganti Soal Acak</span>
+                  </button>
+                  <button class="btn btn-primary btn-glow" id="btn-quiz-verify" type="button">
+                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>Periksa Tulisan Saya (AI Vision)</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Quiz Result Feedback Card -->
+              <div class="quiz-feedback-card hidden" id="quiz-feedback-card">
+                <div class="feedback-header">
+                  <span class="feedback-badge" id="quiz-feedback-badge">BENAR</span>
+                  <span class="feedback-conf" id="quiz-feedback-conf">Kecocokan: 88.5%</span>
+                </div>
+                <p class="feedback-text" id="quiz-feedback-text">Luar biasa! Bentuk dan proporsi aksara yang Anda tulis sangat tepat dan jelas.</p>
+                <div class="feedback-actions">
+                  <button class="btn btn-primary btn-sm" id="btn-quiz-next" type="button">
+                    <span>Tantangan Berikutnya ➡️</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- SUB-PANEL 2: KUIS PILIHAN GANDA (TEBAK AKSARA) -->
+            <div class="quiz-subpanel hidden" id="quiz-panel-mcq">
+              <div class="mcq-card">
+                <div class="mcq-header">
+                  <span class="quiz-tag">Kuis Tebak Aksara</span>
+                  <div class="quiz-score-pill">
+                    <span>Skor Kuis: <strong id="mcq-score">0</strong></span>
+                    <span class="score-divider">|</span>
+                    <span>Streak: <strong id="mcq-streak">0 🔥</strong></span>
+                  </div>
+                </div>
+
+                <div class="mcq-question-box">
+                  <span class="mcq-prompt-label">Aksara Jawa di bawah ini dibaca apa?</span>
+                  <div class="mcq-glyph-hero" id="mcq-target-glyph">ꦗꦸ</div>
+                  <span class="mcq-category-hint" id="mcq-category-hint">Kategori: Sandhangan Suku</span>
+                </div>
+
+                <!-- 4 Options Grid -->
+                <div class="mcq-options-grid" id="mcq-options-grid">
+                  <!-- Populated dynamically via JS -->
+                </div>
+
+                <div class="mcq-footer-bar">
+                  <button class="btn btn-secondary btn-sm" id="btn-mcq-shuffle" type="button">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                    <span>Lewati / Soal Baru</span>
+                  </button>
+                  <span class="mcq-hint-text" id="mcq-feedback-hint">Pilih salah satu jawaban yang paling tepat</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4: 120 Aksara Catalog -->
+        <div class="tab-content" id="tab-catalog" role="tabpanel">
+          <div class="catalog-container">
+            <div class="catalog-filters">
+              <div class="category-pills" id="catalog-category-pills">
+                <button class="cat-pill active" data-cat="all">Semua (120)</button>
+                <button class="cat-pill" data-cat="aksara-dasar">Dasar (20)</button>
+                <button class="cat-pill" data-cat="wulu">Wulu /i/ (20)</button>
+                <button class="cat-pill" data-cat="suku">Suku /u/ (20)</button>
+                <button class="cat-pill" data-cat="taling">Taling /é/ (20)</button>
+                <button class="cat-pill" data-cat="pepet">Pepet /ê/ (20)</button>
+                <button class="cat-pill" data-cat="taling-tarung">Taling-Tarung /o/ (20)</button>
+              </div>
+              <div class="search-box">
+                <input type="text" id="catalog-search" placeholder="Cari aksara (contoh: ha, ba, du, ki)..." class="input-search">
+              </div>
+            </div>
+
+            <div class="catalog-grid" id="catalog-grid">
+              <!-- Rendered via JavaScript -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 5: Model Specs & Metrics -->
+        <div class="tab-content" id="tab-specs" role="tabpanel">
+          <div class="specs-container">
+            <div class="specs-grid">
+              <div class="spec-card">
+                <span class="spec-label">Arsitektur Backbone</span>
+                <strong class="spec-value">EfficientNet-B0</strong>
+                <span class="spec-hint">Compound Scaling (~5.3M Parameter)</span>
+              </div>
+              <div class="spec-card">
+                <span class="spec-label">Akurasi Validasi (PyTorch)</span>
+                <strong class="spec-value text-accent">98.30%</strong>
+                <span class="spec-hint">Trained via Two-Stage Fine-Tuning</span>
+              </div>
+              <div class="spec-card">
+                <span class="spec-label">Paritas Android TFLite</span>
+                <strong class="spec-value text-accent">98.30%</strong>
+                <span class="spec-hint">Presisi Murni Float32 (Tanpa Loss)</span>
+              </div>
+              <div class="spec-card">
+                <span class="spec-label">Dimensi Input Citra</span>
+                <strong class="spec-value">224 × 224 × 3</strong>
+                <span class="spec-hint">Normalisasi Standard ImageNet RGB</span>
+              </div>
+            </div>
+
+            <div class="pipeline-flow-card">
+              <h4 class="flow-title">Pipeline Deployment Multi-Platform</h4>
+              <div class="pipeline-steps">
+                <div class="pipeline-step">
+                  <div class="step-num">1</div>
+                  <div class="step-info">
+                    <strong>PyTorch (.pth)</strong>
+                    <span>Master Weights (V2)</span>
+                  </div>
+                </div>
+                <div class="step-arrow">➡️</div>
+                <div class="pipeline-step">
+                  <div class="step-num">2</div>
+                  <div class="step-info">
+                    <strong>ONNX Runtime (.onnx)</strong>
+                    <span>Web Inference Engine</span>
+                  </div>
+                </div>
+                <div class="step-arrow">➡️</div>
+                <div class="pipeline-step">
+                  <div class="step-num">3</div>
+                  <div class="step-info">
+                    <strong>TFLite (.tflite)</strong>
+                    <span>Android Studio Native</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- RIGHT COLUMN: Vision Analysis & Real-time Diagnostic -->
+      <section class="diagnostic-card glass-panel" aria-label="Hasil Analisis Vision">
+        <div class="card-header-clean">
+          <h2 class="card-title">
+            <span class="title-glow-dot"></span>
+            Hasil Analisis Vision AI
+          </h2>
+          <span class="latency-chip" id="latency-chip">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span id="latency-val">Siap</span>
+          </span>
+        </div>
+
+        <!-- Initial Placeholder State -->
+        <div class="result-placeholder" id="result-placeholder">
+          <div class="placeholder-glyph-orb">
+            <span class="ancient-char">ꦗ</span>
+          </div>
+          <h3 class="placeholder-title">Belum Ada Inferensi</h3>
+          <p class="placeholder-text">Tuliskan karakter pada kanvas atau unggah gambar aksara di panel kiri, lalu klik tombol <strong>Klasifikasi Aksara</strong>.</p>
+        </div>
+
+        <!-- Loading State Skeleton -->
+        <div class="result-loading hidden" id="result-loading">
+          <div class="ai-scanning-orb">
+            <div class="pulse-ring"></div>
+            <span class="scanning-glyph">ꦄ</span>
+          </div>
+          <p class="loading-status">Mengekstraksi fitur visual EfficientNet-B0...</p>
+        </div>
+
+        <!-- Result Container -->
+        <div class="result-content hidden" id="result-content">
+          <!-- Hero Prediction Box (Aktif saat Keyakinan >= 50%) -->
+          <div class="prediction-hero-card" id="prediction-hero-card">
+            <div class="hero-character-box">
+              <span class="hero-unicode" id="res-unicode">ꦲ</span>
+            </div>
+
+            <div class="hero-meta">
+              <div class="category-tag-row">
+                <span class="badge-cat" id="res-category">Aksara Dasar</span>
+                <span class="badge-conf" id="res-confidence-badge">99.4% Pasti</span>
+              </div>
+              <h3 class="hero-latin" id="res-latin">Aksara Ha</h3>
+              <p class="hero-desc" id="res-desc">Aksara dasar nglegena bersuara terbuka /a/.</p>
+            </div>
+          </div>
+
+          <!-- Ambiguity / Clarification State (Aktif saat Keyakinan < 50%) -->
+          <div class="ambiguity-card hidden" id="ambiguity-card">
+            <div class="ambiguity-icon-orb">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#F59E0B" stroke-width="2.2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+            </div>
+            <div class="ambiguity-header">
+              <span class="ambiguity-badge" id="ambiguity-badge">Tulisan Kurang Jelas (&lt; 50%)</span>
+              <h3 class="ambiguity-title">Apakah yang Kamu Maksud Ini?</h3>
+              <p class="ambiguity-desc" id="ambiguity-desc">Goresan dinilai ambigu atau kurang jelas sehingga belum mencapai batas keyakinan 50%. AI mendeteksi beberapa kemungkinan berikut. Silakan klik aksara yang Anda maksud atau goreskan kembali:</p>
+            </div>
+          </div>
+
+          <!-- Confidence Meter & Bar -->
+          <div class="confidence-section">
+            <div class="conf-header">
+              <span class="conf-label" id="conf-meter-label">Tingkat Keyakinan Tertinggi</span>
+              <strong class="conf-percent" id="res-confidence-pct">99.40%</strong>
+            </div>
+            <div class="progress-track">
+              <div class="progress-bar" id="res-progress-bar" style="width: 99.4%;"></div>
+            </div>
+          </div>
+
+          <!-- Top-5 Probability Distribution -->
+          <div class="distribution-section">
+            <h4 class="section-title" id="res-top5-title">5 Kemungkinan Teratas (Top-5 Predictions)</h4>
+            <div class="distribution-list" id="res-top5-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Linguistic Breakdown Card -->
+          <div class="breakdown-card">
+            <h4 class="section-title">Rincian Fonetik &amp; Sandhangan</h4>
+            <div class="breakdown-grid">
+              <div class="breakdown-item">
+                <span class="item-label">Aksara Dasar:</span>
+                <strong class="item-val" id="res-base-consonant">Ha (ꦲ)</strong>
+              </div>
+              <div class="breakdown-item">
+                <span class="item-label">Sandhangan:</span>
+                <strong class="item-val" id="res-sandhangan-type">Baku (Nglegena)</strong>
+              </div>
+              <div class="breakdown-item">
+                <span class="item-label">Vokal:</span>
+                <strong class="item-val" id="res-vowel">a (/a/)</strong>
+              </div>
+              <div class="breakdown-item">
+                <span class="item-label">Posisi Tanda:</span>
+                <strong class="item-val" id="res-position">Bentuk Baku</strong>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Notification Toast Container -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="/static/js/unicode_map.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
