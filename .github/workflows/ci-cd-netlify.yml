@@ -101,15 +101,46 @@ jobs:
             exit 0
           fi
 
+          # 1. Bersihkan residual cache & state runner
+          rm -rf .netlify
+
+          # 2. Sanitasi Site ID input
           CLEAN_SITE_ID=$(echo "$NETLIFY_SITE_ID" | sed -E 's|^https?://||; s|\.netlify\.app.*||; s|/.*||')
 
-          # Hubungkan runner ke Netlify site secara eksplisit
-          netlify link --id "$CLEAN_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || \
-          netlify link --name "$CLEAN_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || true
+          echo "🔍 Menyiapkan deployment ke target Netlify site: $CLEAN_SITE_ID"
 
+          # 3. Validasi token & resolusi otomatis Site ID melalui Netlify API
+          SITE_INFO=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" "https://api.netlify.com/api/v1/sites")
+          HTTP_STATUS=$(echo "$SITE_INFO" | tail -n1)
+          API_BODY=$(echo "$SITE_INFO" | sed '$d')
+
+          if [ "$HTTP_STATUS" == "401" ]; then
+            echo "❌ [ERROR] NETLIFY_AUTH_TOKEN tidak valid atau telah kadaluarsa (HTTP 401 Unauthorized)."
+            echo "Silakan perbarui NETLIFY_AUTH_TOKEN di GitHub Secrets melalui Netlify User Settings > Applications > Personal Access Tokens."
+            exit 1
+          fi
+
+          # Cari Site ID (UUID) yang cocok dengan nama site, subdomain, atau URL
+          RESOLVED_SITE_ID=$(echo "$API_BODY" | jq -r --arg S "$CLEAN_SITE_ID" '.[]? | select(.name == $S or .site_id == $S or .id == $S or .custom_domain == $S or (.url // "" | contains($S))) | .id // empty' | head -n1)
+
+          if [ -n "$RESOLVED_SITE_ID" ]; then
+            TARGET_SITE_ID="$RESOLVED_SITE_ID"
+            echo "✅ Target Netlify Site ID terverifikasi: $TARGET_SITE_ID"
+          else
+            TARGET_SITE_ID="$CLEAN_SITE_ID"
+            echo "ℹ️ Menggunakan Site Identifier langsung: $TARGET_SITE_ID"
+          fi
+
+          # 4. Eksekusi Deploy murni tanpa memicu build runner (@netlify/build)
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             echo "🚀 Melakukan Deploy Preview untuk Pull Request #${{ github.event.number }}..."
-            OUTPUT=$(netlify deploy --dir=netlify_deploy --alias="pr-${{ github.event.number }}" --site="$CLEAN_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN" --json)
+            OUTPUT=$(netlify deploy \
+              --site="$TARGET_SITE_ID" \
+              --auth="$NETLIFY_AUTH_TOKEN" \
+              --dir=netlify_deploy \
+              --alias="pr-${{ github.event.number }}" \
+              --no-build \
+              --json)
             PREVIEW_URL=$(echo "$OUTPUT" | jq -r '.deploy_url // empty')
             if [ -n "$PREVIEW_URL" ]; then
               echo "deploy_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
@@ -118,7 +149,13 @@ jobs:
             fi
           else
             echo "🚀 Melakukan Deploy Produksi (Live Release)..."
-            OUTPUT=$(netlify deploy --dir=netlify_deploy --prod --site="$CLEAN_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN" --json)
+            OUTPUT=$(netlify deploy \
+              --site="$TARGET_SITE_ID" \
+              --auth="$NETLIFY_AUTH_TOKEN" \
+              --dir=netlify_deploy \
+              --prod \
+              --no-build \
+              --json)
             PROD_URL=$(echo "$OUTPUT" | jq -r '.deploy_url // empty')
             if [ -n "$PROD_URL" ]; then
               echo "deploy_url=$PROD_URL" >> $GITHUB_OUTPUT
