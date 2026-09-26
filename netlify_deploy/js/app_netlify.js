@@ -376,57 +376,75 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!bbox) return { hasTaling: false, hasTarung: false };
     const { minX, sw, sh, inkPoints } = bbox;
     const aspect = sw / Math.max(sh, 1);
-    if (aspect < 0.95) return { hasTaling: false, hasTarung: false };
+    if (aspect < 0.85) return { hasTaling: false, hasTarung: false };
+
+    // Buat histogram proyeksi tinta kolom secara kontinu (0..sw-1)
+    const colInk = new Int32Array(sw);
+    for (const point of inkPoints) {
+      const relX = Math.round(point.x - minX);
+      if (relX >= 0 && relX < sw) {
+        colInk[relX]++;
+      }
+    }
 
     // Taling (ꦺ) wajib memuat celah pemisah vertikal (valley) antara glif taling kiri dan konsonan kanan
-    const valleyStart = minX + 0.20 * sw;
-    const valleyEnd = minX + 0.48 * sw;
-    const valleyColCounts = {};
-    let leftCount = 0;
-    let leftMinY = 9999, leftMaxY = -1;
+    // Jendela pencarian celah taling: 20% s/d 55% dari lebar karakter
+    const valleyStart = Math.max(1, Math.floor(0.20 * sw));
+    const valleyEnd = Math.min(sw - 2, Math.floor(0.55 * sw));
+    let minColVal = 999999;
+    let valleyRelX = valleyStart;
 
-    for (const point of inkPoints) {
-      if (point.x >= valleyStart && point.x <= valleyEnd) {
-        const col = Math.round(point.x);
-        valleyColCounts[col] = (valleyColCounts[col] || 0) + 1;
+    for (let x = valleyStart; x <= valleyEnd; x++) {
+      if (colInk[x] < minColVal) {
+        minColVal = colInk[x];
+        valleyRelX = x;
       }
-      if (point.x <= valleyStart) {
+    }
+
+    // Ukur tinggi dan kepadatan glif taling di sebelah kiri celah (dari x=0 s/d valleyRelX)
+    let leftMinY = 999999, leftMaxY = -1, leftCount = 0;
+    for (const point of inkPoints) {
+      if ((point.x - minX) <= valleyRelX) {
         leftCount++;
         if (point.y < leftMinY) leftMinY = point.y;
         if (point.y > leftMaxY) leftMaxY = point.y;
       }
     }
+    const leftHeight = leftMaxY >= leftMinY ? (leftMaxY - leftMinY + 1) : 0;
 
-    const colVals = Object.values(valleyColCounts);
-    const minColVal = colVals.length > 0 ? Math.min(...colVals) : 999;
-    const leftHeight = leftMaxY - leftMinY + 1;
-
-    const hasTaling = (minColVal <= 2) && (leftCount >= 15) && (leftHeight >= 0.55 * sh);
+    // Ambang batas toleransi kuas: minColVal <= max(4, 0.08 * sh)
+    const maxValleyInk = Math.max(4, Math.floor(0.08 * sh));
+    const hasTaling = (aspect >= 0.85) && (minColVal <= maxValleyInk) && (leftCount >= 20) && (leftHeight >= 0.45 * sh);
 
     // Deteksi Tarung kanan (Aksara 3 glif)
     let hasTarung = false;
-    if (aspect >= 1.25) {
-      const tarungStart = minX + 0.55 * sw;
-      const tarungEnd = minX + 0.88 * sw;
-      const tarungColCounts = {};
-      let farRightCount = 0;
-
-      for (const point of inkPoints) {
-        if (point.x >= tarungStart && point.x <= tarungEnd) {
-          const col = Math.round(point.x);
-          tarungColCounts[col] = (tarungColCounts[col] || 0) + 1;
+    if (hasTaling && aspect >= 1.25) {
+      const tarungStart = Math.max(valleyRelX + Math.floor(0.18 * sw), Math.floor(0.55 * sw));
+      const tarungEnd = Math.min(sw - 2, Math.floor(0.88 * sw));
+      if (tarungEnd > tarungStart) {
+        let minTarungVal = 999999;
+        let tarungRelX = tarungStart;
+        for (let x = tarungStart; x <= tarungEnd; x++) {
+          if (colInk[x] < minTarungVal) {
+            minTarungVal = colInk[x];
+            tarungRelX = x;
+          }
         }
-        if (point.x >= minX + 0.85 * sw) {
-          farRightCount++;
+
+        // Ukur glif tarung di sebelah kanan celah tarung
+        let rightMinY = 999999, rightMaxY = -1, rightCount = 0;
+        for (const point of inkPoints) {
+          if ((point.x - minX) > tarungRelX) {
+            rightCount++;
+            if (point.y < rightMinY) rightMinY = point.y;
+            if (point.y > rightMaxY) rightMaxY = point.y;
+          }
         }
-      }
+        const rightHeight = rightMaxY >= rightMinY ? (rightMaxY - rightMinY + 1) : 0;
 
-      const tarungMin = Object.keys(tarungColCounts).length > 0
-        ? Math.min(...Object.values(tarungColCounts))
-        : 999;
-
-      if (tarungMin <= 3 && farRightCount >= 25) {
-        hasTarung = true;
+        if (minTarungVal <= maxValleyInk && rightCount >= 25 && rightHeight >= 0.45 * sh) {
+          hasTarung = true;
+        }
       }
     }
 
@@ -595,20 +613,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     return probabilities;
   }
 
+  const CONSONANTS_TO_TALING_MAP = {
+    ha: 'he', na: 'ne', ca: 'ce', ra: 're', ka: 'ke',
+    da: 'de', ta: 'te', sa: 'se', wa: 'we', la: 'le',
+    pa: 'pe', dha: 'dhe', ja: 'je', ya: 'ye', nya: 'nye',
+    ma: 'me', ga: 'ge', ba: 'be', tha: 'the', nga: 'nge'
+  };
+
+  const CONSONANTS_TO_TALING_TARUNG_MAP = {
+    ha: 'ho', na: 'no', ca: 'co', ra: 'ro', ka: 'ko',
+    da: 'do', ta: 'to', sa: 'so', wa: 'wo', la: 'lo',
+    pa: 'po', dha: 'dho', ja: 'jo', ya: 'yo', nya: 'nyo',
+    ma: 'mo', ga: 'go', ba: 'bo', tha: 'tho', nga: 'ngo'
+  };
+
   function blendTalingProbabilities(viewProbs, state) {
     const { probSquare, probUltraWide, probMediumWide, probTaling } = viewProbs;
     const probabilities = new Array(state.totalClasses).fill(0.0);
 
+    // Sinergi Bayesian konsonan dasar dari View 0 (Square)
+    const baseEvidence = {};
+    for (const [baseC, talingC] of Object.entries(CONSONANTS_TO_TALING_MAP)) {
+      const baseIdx = state.classToIdx[`aksara-dasar_${baseC}`];
+      if (baseIdx !== undefined) {
+        baseEvidence[`taling_${talingC}`] = probSquare[baseIdx] || 0.0;
+      }
+    }
+
     for (let i = 0; i < state.totalClasses; i++) {
       const className = state.idxToClass[i] || '';
       if (className.startsWith('taling_')) {
-        probabilities[i] = 0.65 * probTaling[i] + 0.35 * probMediumWide[i];
+        const baseBoost = baseEvidence[className] || 0.0;
+        probabilities[i] = 0.55 * probTaling[i] + 0.30 * probMediumWide[i] + 0.15 * (probSquare[i] + baseBoost);
       } else if (className.startsWith('taling-tarung_')) {
         probabilities[i] = 0.05 * probUltraWide[i];
       } else if (className.startsWith('aksara-dasar_') || className.startsWith('pepet_')) {
-        probabilities[i] = 0.25 * probSquare[i];
+        probabilities[i] = 0.15 * probSquare[i];
       } else {
-        probabilities[i] = 0.15 * probMediumWide[i];
+        probabilities[i] = 0.10 * probMediumWide[i];
       }
     }
     return probabilities;
@@ -618,10 +660,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const { probSquare, probUltraWide, probMediumWide, probTaling } = viewProbs;
     const probabilities = new Array(state.totalClasses).fill(0.0);
 
+    const baseEvidence = {};
+    for (const [baseC, tarungC] of Object.entries(CONSONANTS_TO_TALING_TARUNG_MAP)) {
+      const baseIdx = state.classToIdx[`aksara-dasar_${baseC}`];
+      if (baseIdx !== undefined) {
+        baseEvidence[`taling-tarung_${tarungC}`] = probSquare[baseIdx] || 0.0;
+      }
+    }
+
     for (let i = 0; i < state.totalClasses; i++) {
       const className = state.idxToClass[i] || '';
       if (className.startsWith('taling-tarung_')) {
-        probabilities[i] = 0.70 * probUltraWide[i] + 0.30 * probMediumWide[i];
+        const baseBoost = baseEvidence[className] || 0.0;
+        probabilities[i] = 0.65 * probUltraWide[i] + 0.25 * probMediumWide[i] + 0.10 * (probSquare[i] + baseBoost);
       } else if (className.startsWith('taling_')) {
         probabilities[i] = 0.10 * probTaling[i];
       } else if (className.startsWith('aksara-dasar_') || className.startsWith('pepet_')) {

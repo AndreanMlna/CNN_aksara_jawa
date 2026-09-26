@@ -162,27 +162,45 @@ def detect_taling_and_tarung(raw_img: Image.Image) -> tuple[bool, bool]:
         return False, False
 
     aspect = bbox.sw / max(bbox.sh, 1)
-    crop_ink = (bbox.arr[bbox.min_y:bbox.max_y + 1, bbox.min_x:bbox.max_x + 1] < DEFAULT_INK_THRESHOLD).astype(np.uint8)
+    if aspect < 0.85:
+        return False, False
 
-    has_taling = False
-    if aspect >= 0.95:
-        sep_start = max(1, int(bbox.sw * 0.20))
-        sep_end = min(bbox.sw - 1, int(bbox.sw * 0.48))
-        if sep_end > sep_start:
-            proj_l = crop_ink[:, sep_start:sep_end].sum(axis=0)
-            if len(proj_l) > 0 and proj_l.min() <= 2:
-                valley_x = sep_start + int(np.argmin(proj_l))
-                left_col_sums = crop_ink[:, :valley_x].sum(axis=1)
-                left_h = (left_col_sums > 0).sum()
-                if left_h >= 0.55 * bbox.sh:
-                    has_taling = True
+    crop_ink = (bbox.arr[bbox.min_y:bbox.max_y + 1, bbox.min_x:bbox.max_x + 1] < DEFAULT_INK_THRESHOLD).astype(np.uint8)
+    col_ink = crop_ink.sum(axis=0)
+
+    # Jendela pencarian celah taling: 20% s/d 55% dari lebar karakter
+    valley_start = max(1, int(0.20 * bbox.sw))
+    valley_end = min(bbox.sw - 2, int(0.55 * bbox.sw))
+    if valley_end <= valley_start:
+        return False, False
+
+    valley_search = col_ink[valley_start:valley_end + 1]
+    min_col_val = int(valley_search.min())
+    valley_rel_x = valley_start + int(np.argmin(valley_search))
+
+    left_mask = crop_ink[:, :valley_rel_x + 1]
+    left_col_sums = left_mask.sum(axis=1)
+    left_h = int((left_col_sums > 0).sum())
+    left_count = int(left_mask.sum())
+
+    max_valley_ink = max(4, int(0.08 * bbox.sh))
+    has_taling = (aspect >= 0.85) and (min_col_val <= max_valley_ink) and (left_count >= 20) and (left_h >= 0.45 * bbox.sh)
 
     has_tarung = False
-    if aspect >= 1.25:
-        proj_r = crop_ink[:, int(bbox.sw * 0.55):int(bbox.sw * 0.88)].sum(axis=0)
-        if len(proj_r) > 0 and proj_r.min() <= 3:
-            far_right_ink = crop_ink[:, int(bbox.sw * 0.85):].sum()
-            if far_right_ink >= 25:
+    if has_taling and aspect >= 1.25:
+        tarung_start = max(valley_rel_x + int(0.18 * bbox.sw), int(0.55 * bbox.sw))
+        tarung_end = min(bbox.sw - 2, int(0.88 * bbox.sw))
+        if tarung_end > tarung_start:
+            tarung_search = col_ink[tarung_start:tarung_end + 1]
+            min_tarung_val = int(tarung_search.min())
+            tarung_rel_x = tarung_start + int(np.argmin(tarung_search))
+
+            right_mask = crop_ink[:, tarung_rel_x + 1:]
+            right_col_sums = right_mask.sum(axis=1)
+            right_h = int((right_col_sums > 0).sum())
+            right_count = int(right_mask.sum())
+
+            if min_tarung_val <= max_valley_ink and right_count >= 25 and right_h >= 0.45 * bbox.sh:
                 has_tarung = True
 
     return has_taling, has_tarung
@@ -310,20 +328,52 @@ def blend_canvas_domain_probabilities(
                 final_probs[idx] = 0.10 * p_medium_wide[idx]
 
     elif has_taling and not has_tarung:
+        consonants_taling_map = {
+            'ha': 'he', 'na': 'ne', 'ca': 'ce', 'ra': 're', 'ka': 'ke',
+            'da': 'de', 'ta': 'te', 'sa': 'se', 'wa': 'we', 'la': 'le',
+            'pa': 'pe', 'dha': 'dhe', 'ja': 'je', 'ya': 'ye', 'nya': 'nye',
+            'ma': 'me', 'ga': 'ge', 'ba': 'be', 'tha': 'the', 'nga': 'nge'
+        }
+        base_evidence = {}
+        for base_c, taling_c in consonants_taling_map.items():
+            b_cls = f"aksara-dasar_{base_c}"
+            if b_cls in class_to_idx:
+                base_evidence[f"taling_{taling_c}"] = p_square[class_to_idx[b_cls]].item()
+
         for idx in range(num_classes):
-            cat = idx_to_class[idx].split('_')[0]
+            c_name = idx_to_class[idx]
+            cat = c_name.split('_')[0]
             if cat == 'taling':
-                final_probs[idx] = 0.65 * p_taling[idx] + 0.35 * p_medium_wide[idx]
+                base_boost = base_evidence.get(c_name, 0.0)
+                final_probs[idx] = 0.55 * p_taling[idx] + 0.30 * p_medium_wide[idx] + 0.15 * (p_square[idx] + base_boost)
+            elif cat == 'taling-tarung':
+                final_probs[idx] = 0.05 * p_ultra_wide[idx]
             elif cat in ['aksara-dasar', 'pepet']:
-                final_probs[idx] = 0.25 * p_square[idx]
+                final_probs[idx] = 0.15 * p_square[idx]
             else:
                 final_probs[idx] = 0.10 * p_medium_wide[idx]
 
     elif has_taling and has_tarung:
+        consonants_tarung_map = {
+            'ha': 'ho', 'na': 'no', 'ca': 'co', 'ra': 'ro', 'ka': 'ko',
+            'da': 'do', 'ta': 'to', 'sa': 'so', 'wa': 'wo', 'la': 'lo',
+            'pa': 'po', 'dha': 'dho', 'ja': 'jo', 'ya': 'yo', 'nya': 'nyo',
+            'ma': 'mo', 'ga': 'go', 'ba': 'bo', 'tha': 'tho', 'nga': 'ngo'
+        }
+        base_evidence = {}
+        for base_c, tarung_c in consonants_tarung_map.items():
+            b_cls = f"aksara-dasar_{base_c}"
+            if b_cls in class_to_idx:
+                base_evidence[f"taling-tarung_{tarung_c}"] = p_square[class_to_idx[b_cls]].item()
+
         for idx in range(num_classes):
-            cat = idx_to_class[idx].split('_')[0]
+            c_name = idx_to_class[idx]
+            cat = c_name.split('_')[0]
             if cat == 'taling-tarung':
-                final_probs[idx] = 0.70 * p_ultra_wide[idx] + 0.30 * p_medium_wide[idx]
+                base_boost = base_evidence.get(c_name, 0.0)
+                final_probs[idx] = 0.65 * p_ultra_wide[idx] + 0.25 * p_medium_wide[idx] + 0.10 * (p_square[idx] + base_boost)
+            elif cat == 'taling':
+                final_probs[idx] = 0.10 * p_taling[idx]
             elif cat in ['aksara-dasar', 'pepet']:
                 final_probs[idx] = 0.15 * p_square[idx]
             else:
