@@ -1,0 +1,41 @@
+Menghubungkan pelestarian warisan budaya dengan rekayasa Computer Vision modern bukan sekadar melatih model klasifikasi gambar biasa.
+
+Selama magang di PT. Rumah Digital Kreasi, saya merancang dan membangun sistem BAJA (Belajar Aksara Jawa) / AksaraAI Studio — platform edukasi berbasis Deep Learning yang berjalan langsung di peramban web (in-browser inference).
+
+Tantangan Nyata di Lapangan:
+Sebagian besar OCR Aksara Jawa saat ini hanya mengenali 20 aksara dasar (nglegena). Padahal, membaca teks Jawa riil selalu melibatkan tanda vokalitas (sandhangan swara).
+
+Oleh karena itu, sistem ini dirancang mengenali 120 kelas karakter sekaligus:
+• 20 Aksara Dasar (Nglegena): ha, na, ca, ra, ka, ...
+• 100 Kombinasi Sandhangan Swara: Pepet [ê], Suku [u], Taling [é], Taling-Tarung [o], dan Wulu [i].
+
+Tantangan visual terberat adalah kemiripan bentuk (inter-class similarity), seperti aksara Gu vs Ru, atau titik wulu dan lingkar pepet yang menuntut model menangkap detail mikro tanpa kehilangan struktur goresan utama.
+
+Pendekatan Teknis:
+1. Backbone EfficientNet-B0: Memanfaatkan Compound Scaling dengan custom dense classifier head (1280 → 512 → 256 → 120), Batch Normalization, dan Dropout bertingkat untuk mencegah overfitting.
+2. Mitigasi Kelas Mirip: Two-Stage Fine-Tuning, Custom Loss Weighting untuk penalti karakter rawan tertukar, serta Label Smoothing (ε = 0.1).
+3. In-Browser Inference (Zero-Server Architecture): Mengekspor model PyTorch ke format ONNX (19.3 MB) via ONNX Runtime WebAssembly (WASM). Inferensi dieksekusi 100% lokal di perangkat pengguna (~10–35 ms), tanpa kirim data ke server (privasi aman & zero server cost).
+
+Fitur Interaktif:
+• Kanvas Tulis Digital: Kurva Bézier responsif & deteksi morfologis goresan sandhangan.
+• Latihan Menulis (Ghost Tracing Overlay): Panduan siluet aksara dengan umpan balik AI instan.
+• Kuis Gamifikasi & Kamus Digital: Latihan flashcard dan basis data 120 aksara lengkap.
+
+---
+Untuk mencoba pengenalan AI ini secara instan, demo web sudah aktif di Netlify. Bagi teman-teman yang ingin belajar Aksara Jawa lengkap dengan kurikulum terstruktur, silakan unduh aplikasi resminya di Google Play:
+
+📱 Aplikasi di Google Play:
+https://play.google.com/store/apps/details?id=com.tama.amoled.baja
+
+🌐 Demo Web Vision AI:
+https://aksarajawaai.netlify.app
+
+💻 Repositori & Riset:
+https://github.com/AndreanMlna/CNN_aksara_jawa
+
+---
+Terima kasih kepada tim mentor PT. Rumah Digital Kreasi atas ruang eksplorasi dan bimbingannya.
+
+Sangat terbuka untuk berdiskusi di kolom komentar seputar Computer Vision, WASM, dan digitalisasi aksara daerah! 🚀
+
+#MachineLearning #DeepLearning #ComputerVision #AksaraJawa #EfficientNet #ONNX #WebAssembly #EdTech #AndroidDev #GooglePlay #ArtificialIntelligence
