@@ -101,18 +101,28 @@ jobs:
             exit 0
           fi
 
+          CLEAN_SITE_ID=$(echo "$NETLIFY_SITE_ID" | sed -E 's|^https?://||; s|\.netlify\.app.*||; s|/.*||')
+
+          # Hubungkan runner ke Netlify site secara eksplisit
+          netlify link --id "$CLEAN_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || \
+          netlify link --name "$CLEAN_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || true
+
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             echo "🚀 Melakukan Deploy Preview untuk Pull Request #${{ github.event.number }}..."
-            OUTPUT=$(netlify deploy --dir=netlify_deploy --alias="pr-${{ github.event.number }}" --json)
-            PREVIEW_URL=$(echo "$OUTPUT" | jq -r '.deploy_url')
-            echo "deploy_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
-            echo "### 🌐 Netlify Preview URL" >> $GITHUB_STEP_SUMMARY
-            echo "Pratinjau PR aktif di: [$PREVIEW_URL]($PREVIEW_URL)" >> $GITHUB_STEP_SUMMARY
+            OUTPUT=$(netlify deploy --dir=netlify_deploy --alias="pr-${{ github.event.number }}" --site="$CLEAN_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN" --json)
+            PREVIEW_URL=$(echo "$OUTPUT" | jq -r '.deploy_url // empty')
+            if [ -n "$PREVIEW_URL" ]; then
+              echo "deploy_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
+              echo "### 🌐 Netlify Preview URL" >> $GITHUB_STEP_SUMMARY
+              echo "Pratinjau PR aktif di: [$PREVIEW_URL]($PREVIEW_URL)" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "🚀 Melakukan Deploy Produksi (Live Release)..."
-            OUTPUT=$(netlify deploy --dir=netlify_deploy --prod --json)
-            PROD_URL=$(echo "$OUTPUT" | jq -r '.deploy_url')
-            echo "deploy_url=$PROD_URL" >> $GITHUB_OUTPUT
-            echo "### 🚀 Netlify Production URL" >> $GITHUB_STEP_SUMMARY
-            echo "Situs live aktif di: [$PROD_URL]($PROD_URL)" >> $GITHUB_STEP_SUMMARY
+            OUTPUT=$(netlify deploy --dir=netlify_deploy --prod --site="$CLEAN_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN" --json)
+            PROD_URL=$(echo "$OUTPUT" | jq -r '.deploy_url // empty')
+            if [ -n "$PROD_URL" ]; then
+              echo "deploy_url=$PROD_URL" >> $GITHUB_OUTPUT
+              echo "### 🚀 Netlify Production URL" >> $GITHUB_STEP_SUMMARY
+              echo "Situs live aktif di: [$PROD_URL]($PROD_URL)" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
